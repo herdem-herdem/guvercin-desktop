@@ -232,11 +232,15 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
         .map_err(|e| crate::error::AppError::BadRequest(format!("Local addr error: {e}")))?;
     tracing::info!("Starting Axum server on {}", bound_port);
 
-    axum::serve(listener, app)
-        .await
-        .map_err(|e| crate::error::AppError::BadRequest(format!("Axum error: {e}")))?;
+    let port = bound_port.port();
 
-    Ok(bound_port.port())
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, app).await {
+            tracing::error!("Axum server error: {e}");
+        }
+    });
+
+    Ok(port)
 }
 
 pub async fn init_keyring() -> anyhow::Result<()> {

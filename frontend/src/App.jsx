@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { apiUrl } from './utils/api'
+import { apiUrl, apiReady } from './utils/api'
 import LoginPage from './pages/LoginPage.jsx'
 import LanguagePage from './pages/LanguagePage.jsx'
 import FontPage from './pages/FontPage.jsx'
@@ -139,24 +139,23 @@ function StartupRouter() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [error, setError] = useState(null)
-  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     let active = true
     let retryTimer
 
     const fetchAccounts = async () => {
+      if (!active) return
       try {
         setError(null)
 
+        await apiReady
         const response = await fetch(apiUrl('/api/auth/accounts'))
         if (!response.ok) {
           throw new Error('Failed to load accounts')
         }
         const data = await response.json()
-        if (!active) {
-          return
-        }
+        if (!active) return
 
         const accounts = Array.isArray(data.accounts) ? data.accounts : []
         if (accounts.length === 0) {
@@ -167,17 +166,10 @@ function StartupRouter() {
           navigate('/account-select', { replace: true })
         }
       } catch {
-        if (!active) {
-          return
-        }
+        if (!active) return
 
-        const errorMessage = t('Unable to load accounts. Retrying...')
-        setError(errorMessage)
-
-        setRetryCount(prev => prev + 1)
+        setError(t('Unable to load accounts. Retrying...'))
         retryTimer = setTimeout(fetchAccounts, 2000)
-      } finally {
-        
       }
     }
 
@@ -186,7 +178,8 @@ function StartupRouter() {
       active = false
       if (retryTimer) clearTimeout(retryTimer)
     }
-  }, [navigate, t, retryCount])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
 
   if (error) {

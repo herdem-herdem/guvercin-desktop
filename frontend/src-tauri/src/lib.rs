@@ -565,6 +565,8 @@ pub fn run() {
                 // Store the port so the frontend can retrieve it.
                 let state = _app_handle.state::<BackendPort>();
                 *state.0.lock().unwrap() = Some(port);
+                // Keep the runtime alive so the spawned axum server keeps running.
+                std::future::pending::<()>().await;
                 break;
               }
               Err(rust_backend::error::AppError::KeyringDenied(_)) => {
