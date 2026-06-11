@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiUrl } from '../utils/api'
 import { hydrateAccountSession } from '../utils/accountStorage.js'
+import LanguageSelector from '../components/LanguageSelector.jsx'
 import './OfflineSetupPage.css'
 
 function normalizeFolderPath(path) {
@@ -356,6 +357,7 @@ function OfflineSetupPage() {
   return (
     <div className="offline-setup-page">
       <div className="offline-setup-card">
+        <LanguageSelector />
         <div className="onboarding-header">
           <button type="button" className="onboarding-back-btn" onClick={() => navigate('/theme')}>
             {t('Back')}

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { apiUrl, apiReady } from './utils/api'
 import LoginPage from './pages/LoginPage.jsx'
-import LanguagePage from './pages/LanguagePage.jsx'
 import FontPage from './pages/FontPage.jsx'
 import OfflineSetupPage from './pages/OfflineSetupPage.jsx'
 import NotAuthPage from './pages/NotAuthPage.jsx'
@@ -64,17 +63,15 @@ function App() {
 
     if (!isDetachedWindow && (path === '/login' || path === '/')) {
       localStorage.removeItem('temp_account_form')
-      localStorage.removeItem('temp_language')
       localStorage.removeItem('temp_font')
       localStorage.removeItem('temp_theme_mode')
       localStorage.removeItem('temp_theme_name')
       localStorage.removeItem('temp_offline_config')
-      i18n.changeLanguage('en')
     }
 
     const tempFont = localStorage.getItem('temp_font')
     const savedFont = localStorage.getItem('font')
-    const onboardingPaths = ['/login', '/language', '/font', '/theme', '/offline-setup', '/not_auth', '/settings', '/account-settings']
+    const onboardingPaths = ['/login', '/font', '/theme', '/offline-setup', '/not_auth', '/settings', '/account-settings']
 
     let fontToUse = "'Inter', sans-serif"
 
@@ -106,6 +103,15 @@ function App() {
     document.body.style.fontFamily = fontToUse
   }, [location, windowLabel])
 
+  const isDetachedWindow = (
+    windowLabel === 'mail'
+    || windowLabel.startsWith('mail-')
+    || windowLabel === 'compose'
+    || windowLabel.startsWith('compose-')
+    || getDetachedHint()?.kind === 'mail'
+    || getDetachedHint()?.kind === 'compose'
+  )
+
   if (windowLabel === 'mail' || windowLabel.startsWith('mail-')) {
     return <DetachedMailWindow initialLabel={windowLabel} />
   }
@@ -115,21 +121,22 @@ function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<StartupRouter />} />
-      <Route path="/index.html" element={<Navigate to="/" replace />} />
-      <Route path="/account-select" element={<AccountSelectionPage />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/language" element={<LanguagePage />} />
-      <Route path="/font" element={<FontPage />} />
-      <Route path="/theme" element={<ThemePage />} />
-      <Route path="/offline-setup" element={<OfflineSetupPage />} />
-      <Route path="/not_auth" element={<NotAuthPage />} />
-      <Route path="/dashboard" element={<DashboardPage />} />
-      <Route path="/settings" element={<SettingsPageWrapper />} />
-      <Route path="/account-settings" element={<AccountSettingsPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<StartupRouter />} />
+        <Route path="/index.html" element={<Navigate to="/" replace />} />
+        <Route path="/account-select" element={<AccountSelectionPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/font" element={<FontPage />} />
+        <Route path="/theme" element={<ThemePage />} />
+        <Route path="/offline-setup" element={<OfflineSetupPage />} />
+        <Route path="/not_auth" element={<NotAuthPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/settings" element={<SettingsPageWrapper />} />
+        <Route path="/account-settings" element={<AccountSettingsPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   )
 }
 

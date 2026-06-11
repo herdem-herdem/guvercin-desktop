@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import LanguageSelector from '../components/LanguageSelector.jsx'
 import './FontPage.css'
 
 const FALLBACK_FONTS = [
@@ -55,11 +56,12 @@ function FontPage() {
     return (
         <div className="font-page">
             <div className="font-container">
+                <LanguageSelector />
                 <div className="onboarding-header">
                     <button
                         type="button"
                         className="onboarding-back-btn"
-                        onClick={() => navigate('/language')}
+                        onClick={() => navigate('/login')}
                     >
                         {t('Back')}
                     </button>

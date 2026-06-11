@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../context/ThemeContext.jsx'
 import { importThemeFromFile } from '../theme/importThemeFile.js'
+import LanguageSelector from '../components/LanguageSelector.jsx'
 import './ThemePage.css'
 
 const BUILTIN = [
@@ -87,6 +88,7 @@ function ThemePage() {
   return (
     <div className="theme-page">
       <div className="theme-container">
+        <LanguageSelector />
         <div className="onboarding-header">
           <button type="button" className="onboarding-back-btn" onClick={() => navigate('/font')}>
             {t('Back')}

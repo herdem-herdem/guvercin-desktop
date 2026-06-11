@@ -10,6 +10,7 @@
 }
 
 .font-container {
+    position: relative;
     background-color: var(--c-surface-1);
     padding: 25px;
     border-radius: 12px;

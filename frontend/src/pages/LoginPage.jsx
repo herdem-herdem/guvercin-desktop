@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { hydrateAccountSession } from '../utils/accountStorage.js'
+import LanguageSelector from '../components/LanguageSelector.jsx'
 import './LoginPage.css'
 
 const ACCOUNT_FORM_DRAFT_KEY = 'temp_account_form_draft'
@@ -183,7 +184,7 @@ function LoginPage() {
             clearDraft()
 
             setTimeout(() => {
-                navigate('/language')
+                navigate('/font')
             }, 2000)
         } catch (error) {
             console.error('Error Details:', error)
@@ -209,6 +210,7 @@ function LoginPage() {
     return (
         <div className="login-page">
             <div className="form-container">
+                <LanguageSelector />
                 <h2>{t('Email Account Settings')}</h2>
 
                 {loading && (

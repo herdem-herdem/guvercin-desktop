@@ -1,7 +1,6 @@
-import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import './LanguagePage.css'
+import './LanguageSelector.css'
 
 const LANGUAGES = [
     { code: 'tr', flag: 'tr', native: 'Türkçe', english: 'Turkish', alt: 'Turkey' },
@@ -72,13 +71,31 @@ const LANGUAGES = [
 
 const PRIORITY_LANGS = ['tr', 'en', 'ar-ps', 'az', 'kk', 'ky', 'tk', 'uz', 'sq-xk']
 
-function LanguagePage() {
+export default function LanguageSelector() {
     const { t, i18n } = useTranslation()
-    const navigate = useNavigate()
-    const [selectedLang, setSelectedLang] = useState(
-        () => localStorage.getItem('temp_language') || localStorage.getItem('language') || null
-    )
+    const [isOpen, setIsOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
+    const dropdownRef = useRef(null)
+
+    // Close when clicking outside
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsOpen(false)
+            }
+        }
+        if (isOpen) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [isOpen])
+
+    const currentLangCode = i18n.language || 'en'
+    const currentLang = useMemo(() => {
+        return LANGUAGES.find(l => l.code === currentLangCode) || LANGUAGES.find(l => l.code === 'en')
+    }, [currentLangCode])
 
     const sortedLanguages = useMemo(() => {
         return [...LANGUAGES].sort((a, b) => {
@@ -103,69 +120,78 @@ function LanguagePage() {
         )
     }, [searchQuery, sortedLanguages])
 
-    const handleConfirm = async () => {
-        if (!selectedLang) return
-        navigate('/font')
+    const handleSelect = (code) => {
+        localStorage.setItem('temp_language', code)
+        localStorage.setItem('language', code)
+        i18n.changeLanguage(code)
+        setIsOpen(false)
+        setSearchQuery('')
     }
 
     return (
-        <div className="language-page">
-            <div className="language-container">
-                <div className="onboarding-header">
-                    <button
-                        type="button"
-                        className="onboarding-back-btn"
-                        onClick={() => navigate('/login')}
-                    >
-                        {t('Back')}
-                    </button>
-                    <h2 className="sticky-title">{t('Language')}</h2>
-                </div>
+        <div className="global-language-selector" ref={dropdownRef}>
+            <button
+                type="button"
+                className="selector-trigger"
+                onClick={() => setIsOpen(!isOpen)}
+                aria-haspopup="true"
+                aria-expanded={isOpen}
+            >
+                {currentLang && (
+                    <>
+                        <img
+                            src={`/flags/${currentLang.flag}.png`}
+                            alt={currentLang.alt}
+                            className="current-flag"
+                        />
+                        <span className="current-name">{currentLang.native}</span>
+                    </>
+                )}
+                <span className="arrow-down">▾</span>
+            </button>
 
-                <div className="search-wrapper">
-                    <input
-                        type="text"
-                        className="search-input"
-                        placeholder={t('Search language or country...')}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                </div>
-
-                <div className="language-list" id="languageGrid">
-                    {filteredLanguages.length === 0 && (
-                        <div className="no-results">{t('No results found.')}</div>
-                    )}
-                    {filteredLanguages.map((lang) => (
-                        <div
-                            key={lang.code}
-                            className={`language-card ${selectedLang === lang.code ? 'active' : ''}`}
-                            onClick={() => {
-                                setSelectedLang(lang.code)
-                                localStorage.setItem('temp_language', lang.code)
-                                i18n.changeLanguage(lang.code)
-                            }}
+            {isOpen && (
+                <div className="selector-dropdown">
+                    <div className="dropdown-header">
+                        <h4>{t('Language')}</h4>
+                        <button
+                            type="button"
+                            className="close-dropdown-btn"
+                            onClick={() => setIsOpen(false)}
                         >
-                            <img src={`/flags/${lang.flag}.png`} alt={lang.alt} />
-                            <span>
-                                {lang.native}
-                                <em>({lang.english})</em>
-                            </span>
-                        </div>
-                    ))}
+                            ✕
+                        </button>
+                    </div>
+                    <div className="dropdown-search">
+                        <input
+                            type="text"
+                            placeholder={t('Search language or country...')}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            autoFocus
+                        />
+                    </div>
+                    <div className="dropdown-list">
+                        {filteredLanguages.length === 0 && (
+                            <div className="no-results">{t('No results found.')}</div>
+                        )}
+                        {filteredLanguages.map((lang) => (
+                            <div
+                                key={lang.code}
+                                className={`dropdown-item ${currentLangCode === lang.code ? 'active' : ''}`}
+                                onClick={() => handleSelect(lang.code)}
+                            >
+                                <img src={`/flags/${lang.flag}.png`} alt={lang.alt} className="item-flag" />
+                                <span className="item-names">
+                                    <span className="native-name">{lang.native}</span>
+                                    <span className="english-name">({lang.english})</span>
+                                </span>
+                                {currentLangCode === lang.code && <span className="checkmark">✓</span>}
+                            </div>
+                        ))}
+                    </div>
                 </div>
-
-                <button
-                    type="button"
-                    className="confirm-button"
-                    disabled={!selectedLang}
-                    onClick={handleConfirm}
-                >
-                    {t('Confirm Selection')}
-                </button>
-            </div>
+            )}
         </div>
     )
 }
-
-export default LanguagePage

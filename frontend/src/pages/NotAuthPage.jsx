@@ -1,6 +1,7 @@
 import { apiUrl } from '../utils/api'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import LanguageSelector from '../components/LanguageSelector.jsx'
 import './NotAuthPage.css'
 
 const ACCOUNT_FORM_DRAFT_KEY = 'temp_account_form_draft'
@@ -49,7 +50,7 @@ function NotAuthPage() {
                 if (json.account_id) {
                     localStorage.setItem('current_account_id', json.account_id)
                 }
-                navigate('/language')
+                navigate('/font')
             } else {
                 alert(t('Error:') + ' ' + (json.message || t('Unknown error')))
             }
@@ -62,6 +63,7 @@ function NotAuthPage() {
     return (
         <div className="not-auth-page">
             <div className="not-auth-container">
+                <LanguageSelector />
                 <h1>{t("Couldn't authorize your credentials")}</h1>
                 <p className="message">{errorMessage}</p>
                 <p className="prompt">

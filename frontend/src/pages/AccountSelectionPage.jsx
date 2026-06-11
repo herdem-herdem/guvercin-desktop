@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import './AccountSelectionPage.css'
 import { hydrateAccountSession } from '../utils/accountStorage.js'
 import LockScreen from './LockScreen.jsx'
+import LanguageSelector from '../components/LanguageSelector.jsx'
 
 function AccountSelectionPage() {
   const { t } = useTranslation()
@@ -174,6 +175,7 @@ function AccountSelectionPage() {
   return (
     <div className="account-selection-page">
       <div className="selection-panel">
+        <LanguageSelector />
         <div className="heading">
           <p className="eyebrow">{t('Registered Accounts')}</p>
           <h1>{t('Account Selection')}</h1>

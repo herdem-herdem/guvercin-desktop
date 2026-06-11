@@ -11,6 +11,7 @@
 }
 
 .not-auth-container {
+    position: relative;
     background-color: var(--c-surface-1);
     border-radius: 12px;
     padding: 30px;

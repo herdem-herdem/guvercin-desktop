@@ -9,6 +9,7 @@
 }
 
 .offline-setup-card {
+  position: relative;
   background-color: var(--c-surface-1);
   padding: 24px;
   border-radius: 12px;
