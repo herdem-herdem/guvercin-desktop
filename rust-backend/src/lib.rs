@@ -20,7 +20,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -51,7 +51,7 @@ fn init_tracing() {
         .try_init();
 }
 
-pub async fn run(db_dir: Option<PathBuf>) -> Result<(), crate::error::AppError> {
+pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError> {
     dotenvy::dotenv().ok();
 
     init_tracing();
@@ -222,13 +222,21 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<(), crate::error::AppError> 
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 5000));
-    tracing::info!("Starting Axum server on {}", addr);
+    // Bind to port 0: the OS assigns a free ephemeral port automatically,
+    // which avoids conflicts with AirPlay (macOS 5000) or any other service.
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| crate::error::AppError::BadRequest(format!("Bind error: {e}")))?;
+    let bound_port = listener
+        .local_addr()
+        .map_err(|e| crate::error::AppError::BadRequest(format!("Local addr error: {e}")))?;
+    tracing::info!("Starting Axum server on {}", bound_port);
 
-    let listener = TcpListener::bind(addr).await.map_err(|e| crate::error::AppError::BadRequest(format!("Bind error: {e}")))?;
-    axum::serve(listener, app).await.map_err(|e| crate::error::AppError::BadRequest(format!("Axum error: {e}")))?;
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| crate::error::AppError::BadRequest(format!("Axum error: {e}")))?;
 
-    Ok(())
+    Ok(bound_port.port())
 }
 
 pub async fn init_keyring() -> anyhow::Result<()> {

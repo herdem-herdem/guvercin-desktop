@@ -29,30 +29,38 @@ mod platform {
     use core_foundation::data::CFData;
     use core_foundation::dictionary::CFDictionary;
     use core_foundation::string::CFString;
+    use core_foundation::number::CFNumber;
     use core_foundation_sys::base::CFTypeRef;
     use security_framework_sys::base::{
-        errSecDuplicateItem, errSecItemNotFound, errSecSuccess, errSecUserCanceled,
+        errSecDuplicateItem, errSecItemNotFound, errSecSuccess, SecAccessControlRef,
     };
-    use security_framework_sys::keychain::{
-        kSecAttrAccessControl, kSecAttrAccount, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-        kSecAttrService, kSecClass, kSecClassGenericPassword, kSecMatchLimit, kSecMatchLimitOne,
-        kSecReturnData, kSecUseOperationPrompt, kSecValueData, SecAccessControlCreateWithFlags,
-        SecItemAdd, SecItemCopyMatching, SecItemUpdate, SecAccessControlRef,
-        kSecAccessControlUserPresence,
+    use security_framework_sys::item::{
+        kSecAttrAccessControl, kSecAttrAccount,
+        kSecAttrService, kSecClass, kSecClassGenericPassword, kSecMatchLimit,
+        kSecReturnData, kSecValueData,
+    };
+    use security_framework_sys::access_control::{
+        SecAccessControlCreateWithFlags, kSecAccessControlUserPresence,
+        kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+    };
+    use security_framework_sys::keychain_item::{
+        SecItemAdd, SecItemCopyMatching, SecItemUpdate,
     };
 
-    fn cf_string_const(ptr: CFTypeRef) -> CFType {
-        unsafe { CFType::wrap_under_get_rule(ptr) }
+    const errSecUserCanceled: core_foundation_sys::base::OSStatus = -128;
+
+    fn cf_string_const<T>(ptr: *const T) -> CFType {
+        unsafe { CFType::wrap_under_get_rule(ptr as _) }
     }
 
     fn make_access_control() -> Result<SecAccessControlRef, KeyStoreError> {
-        let mut error: CFTypeRef = std::ptr::null_mut();
+        let mut error: *mut std::ffi::c_void = std::ptr::null_mut();
         let access = unsafe {
             SecAccessControlCreateWithFlags(
                 std::ptr::null(),
-                kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                kSecAttrAccessibleWhenUnlockedThisDeviceOnly as _,
                 kSecAccessControlUserPresence,
-                &mut error as *mut _,
+                &mut error as *mut *mut std::ffi::c_void as *mut _,
             )
         };
         if access.is_null() {
@@ -64,26 +72,30 @@ mod platform {
     }
 
     pub async fn load_master_key(prompt: &str) -> Result<Vec<u8>, KeyStoreError> {
-        let service = CFString::new(SERVICE_NAME);
-        let account = CFString::new(ENTRY_NAME);
-        let prompt_cf = CFString::new(prompt);
-        let return_true = CFBoolean::true_value();
-        let key_class = cf_string_const(kSecClass);
-        let class_generic = cf_string_const(kSecClassGenericPassword);
-        let key_service = cf_string_const(kSecAttrService);
-        let key_account = cf_string_const(kSecAttrAccount);
-        let key_return = cf_string_const(kSecReturnData);
-        let key_match = cf_string_const(kSecMatchLimit);
-        let match_one = cf_string_const(kSecMatchLimitOne);
-        let key_prompt = cf_string_const(kSecUseOperationPrompt);
+        let service = CFString::new(SERVICE_NAME).as_CFType();
+        let account = CFString::new(ENTRY_NAME).as_CFType();
+        let prompt_cf = CFString::new(prompt).as_CFType();
+        let return_true = CFBoolean::true_value().as_CFType();
+        let (key_class, class_generic, key_service, key_account, key_return, key_match) = unsafe {
+            (
+                cf_string_const(kSecClass),
+                cf_string_const(kSecClassGenericPassword),
+                cf_string_const(kSecAttrService),
+                cf_string_const(kSecAttrAccount),
+                cf_string_const(kSecReturnData),
+                cf_string_const(kSecMatchLimit),
+            )
+        };
+        let match_one = CFNumber::from(1).as_CFType();
+        let key_prompt = CFString::new("uops").as_CFType();
 
         let query = CFDictionary::from_CFType_pairs(&[
-            (&key_class, &class_generic),
-            (&key_service, &service),
-            (&key_account, &account),
-            (&key_return, &return_true),
-            (&key_match, &match_one),
-            (&key_prompt, &prompt_cf),
+            (key_class.clone(), class_generic.clone()),
+            (key_service.clone(), service.clone()),
+            (key_account.clone(), account.clone()),
+            (key_return.clone(), return_true.clone()),
+            (key_match.clone(), match_one.clone()),
+            (key_prompt.clone(), prompt_cf.clone()),
         ]);
 
         let mut result: CFTypeRef = std::ptr::null_mut();
@@ -110,37 +122,41 @@ mod platform {
     }
 
     pub async fn store_master_key(_prompt: &str, key: &[u8]) -> Result<(), KeyStoreError> {
-        let service = CFString::new(SERVICE_NAME);
-        let account = CFString::new(ENTRY_NAME);
-        let data = CFData::from_buffer(key);
+        let service = CFString::new(SERVICE_NAME).as_CFType();
+        let account = CFString::new(ENTRY_NAME).as_CFType();
+        let data = CFData::from_buffer(key).as_CFType();
         let access = make_access_control()?;
 
         let access_cf = unsafe { CFType::wrap_under_create_rule(access as _) };
-        let key_class = cf_string_const(kSecClass);
-        let class_generic = cf_string_const(kSecClassGenericPassword);
-        let key_service = cf_string_const(kSecAttrService);
-        let key_account = cf_string_const(kSecAttrAccount);
-        let key_value = cf_string_const(kSecValueData);
-        let key_access = cf_string_const(kSecAttrAccessControl);
+        let (key_class, class_generic, key_service, key_account, key_value, key_access) = unsafe {
+            (
+                cf_string_const(kSecClass),
+                cf_string_const(kSecClassGenericPassword),
+                cf_string_const(kSecAttrService),
+                cf_string_const(kSecAttrAccount),
+                cf_string_const(kSecValueData),
+                cf_string_const(kSecAttrAccessControl),
+            )
+        };
 
         let add = CFDictionary::from_CFType_pairs(&[
-            (&key_class, &class_generic),
-            (&key_service, &service),
-            (&key_account, &account),
-            (&key_value, &data),
-            (&key_access, &access_cf),
+            (key_class.clone(), class_generic.clone()),
+            (key_service.clone(), service.clone()),
+            (key_account.clone(), account.clone()),
+            (key_value.clone(), data.clone()),
+            (key_access.clone(), access_cf.clone()),
         ]);
 
         let status = unsafe { SecItemAdd(add.as_concrete_TypeRef(), std::ptr::null_mut()) };
         if status == errSecDuplicateItem {
             let query = CFDictionary::from_CFType_pairs(&[
-                (&key_class, &class_generic),
-                (&key_service, &service),
-                (&key_account, &account),
+                (key_class.clone(), class_generic.clone()),
+                (key_service.clone(), service.clone()),
+                (key_account.clone(), account.clone()),
             ]);
             let update = CFDictionary::from_CFType_pairs(&[
-                (&key_value, &data),
-                (&key_access, &access_cf),
+                (key_value.clone(), data.clone()),
+                (key_access.clone(), access_cf.clone()),
             ]);
             let update_status =
                 unsafe { SecItemUpdate(query.as_concrete_TypeRef(), update.as_concrete_TypeRef()) };

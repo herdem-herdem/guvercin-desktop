@@ -8,6 +8,11 @@ use serde_json::Value;
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_log::{Target, TargetKind};
 
+/// Shared state holding the port the Rust backend is listening on.
+/// Set once during app setup; read by the `get_backend_port` command.
+#[derive(Default)]
+struct BackendPort(Mutex<Option<u16>>);
+
 #[cfg(any(
   target_os = "linux",
   target_os = "dragonfly",
@@ -387,6 +392,11 @@ fn get_all_domain_link_behaviors(
 }
 
 #[tauri::command]
+fn get_backend_port(state: State<'_, BackendPort>) -> Option<u16> {
+  *state.0.lock().unwrap()
+}
+
+#[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
   if !is_allowed_external_url(&url) {
     return Err("URL scheme not allowed".to_string());
@@ -551,7 +561,12 @@ pub fn run() {
           
           loop {
             match rust_backend::run(db_dir.clone()).await {
-              Ok(_) => break,
+              Ok(port) => {
+                // Store the port so the frontend can retrieve it.
+                let state = _app_handle.state::<BackendPort>();
+                *state.0.lock().unwrap() = Some(port);
+                break;
+              }
               Err(rust_backend::error::AppError::KeyringDenied(_)) => {
                 log::warn!("Keyring access denied; prompting user to retry or quit");
                 let confirmed = _app_handle.dialog()
@@ -618,10 +633,12 @@ pub fn run() {
       copy_to_clipboard,
       list_user_themes,
       read_user_theme,
-      write_user_theme
+      write_user_theme,
+      get_backend_port
     ])
     .manage(MailWindowStore::default())
     .manage(ComposeWindowStore::default())
+    .manage(BackendPort::default())
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
