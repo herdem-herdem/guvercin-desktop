@@ -78,6 +78,7 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
             "/api/auth/mailboxes-preview",
             post(routes::preview_mailboxes),
         )
+        .route("/api/auth/probe", post(routes::probe_server))
         .route("/api/account/finalize", post(routes::finalize_account))
         .route("/api/account/:account_id/theme", post(routes::set_account_theme))
         .route("/api/account/:account_id/font", post(routes::set_account_font))

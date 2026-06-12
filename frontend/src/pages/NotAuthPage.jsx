@@ -76,12 +76,14 @@ function NotAuthPage() {
                 <button
                     className="btn back"
                     onClick={() => {
-                        try {
-                            localStorage.setItem(ACCOUNT_FORM_DRAFT_KEY, JSON.stringify(formData || {}))
-                        } catch (err) {
-                            console.warn('Failed to persist temp_account_form_draft', err)
-                        }
-                        navigate('/login', { state: { formData } })
+                        navigate('/login', {
+                            state: {
+                                formData: {
+                                    displayName: formData.displayName || '',
+                                    email: formData.email || '',
+                                },
+                            },
+                        })
                     }}
                 >
                     {t('Back to Login')}

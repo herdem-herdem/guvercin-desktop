@@ -1,6 +1,7 @@
 use imap;
 use native_tls::TlsConnector;
 use std::io::{Read, Write};
+use std::net::TcpStream;
 
 use crate::i18n::tr;
 
@@ -43,6 +44,62 @@ pub async fn preview_mailboxes(
     })
     .await
     .unwrap_or_else(|e| Err(format!("Unexpected error: {e}")))
+}
+
+pub async fn probe_server(
+    imap_server: &str,
+    imap_port: u16,
+    smtp_server: Option<&str>,
+    smtp_port: Option<u16>,
+    ssl_mode: &str,
+) -> Result<(), String> {
+    let imap_server = imap_server.to_string();
+    let smtp_server = smtp_server.map(|s| s.to_string());
+    let ssl_mode = ssl_mode.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        probe_single_server(&imap_server, imap_port, &ssl_mode)?;
+        if let Some(smtp_server) = smtp_server.as_deref() {
+            if let Some(smtp_port) = smtp_port {
+                probe_tcp_port(smtp_server, smtp_port)?;
+            }
+        }
+        Ok(())
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Unexpected error: {e}")))
+}
+
+fn probe_single_server(server: &str, port: u16, ssl_mode: &str) -> Result<(), String> {
+    let mut builder = TlsConnector::builder();
+    builder.danger_accept_invalid_certs(true);
+    builder.danger_accept_invalid_hostnames(true);
+
+    let tls = builder.build().map_err(|e| format!("{e}"))?;
+
+    match ssl_mode.to_uppercase().as_str() {
+        "SSL" => {
+            let _ = imap::connect((server, port), server, &tls).map_err(|e| format!("{e}"))?;
+            Ok(())
+        }
+        "STARTTLS" => {
+            let _ = imap::connect_starttls((server, port), server, &tls).map_err(|e| format!("{e}"))?;
+            Ok(())
+        }
+        _ => {
+            let stream = TcpStream::connect((server, port)).map_err(|e| format!("{e}"))?;
+            let mut client = imap::Client::new(stream);
+            client.read_greeting().map_err(|e| format!("{e}"))?;
+            Ok(())
+        }
+    }
+}
+
+fn probe_tcp_port(server: &str, port: u16) -> Result<(), String> {
+    let stream = TcpStream::connect((server, port)).map_err(|e| format!("{e}"))?;
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(10)));
+    Ok(())
 }
 
 fn inner_authorize(

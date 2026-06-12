@@ -14,10 +14,11 @@ use crate::{
     imap_client,
     models::{
         AccountSettingsResponse, AccountSummary, AccountsResponse, FinalizeAccountBody,
-        FinalizeAccountData,         FinalizeSuccessResponse, MailboxPreviewRequest,
-        MailboxPreviewResponse, SetFontBody, SetLayoutBody, SetMailboxCountDisplayBody, SetOrderBody, SetThemeBody,
-        SetConversationViewBody, SetupAccountForm, SetupFailureFormData,
-        SetupFailureResponse, SetupSuccessResponse, UpdateAccountSettingsBody, DeleteAccountBody,
+        FinalizeAccountData, FinalizeSuccessResponse, MailboxPreviewRequest,
+        MailboxPreviewResponse, ServerProbeRequest, ServerProbeResponse, SetConversationViewBody,
+        SetFontBody, SetLayoutBody, SetMailboxCountDisplayBody, SetOrderBody, SetThemeBody,
+        SetupAccountForm, SetupFailureFormData, SetupFailureResponse, SetupSuccessResponse,
+        UpdateAccountSettingsBody, DeleteAccountBody,
     },
     offline_routes,
 };
@@ -188,6 +189,49 @@ pub async fn preview_mailboxes(Json(payload): Json<MailboxPreviewRequest>) -> im
             )
                 .into_response()
         }
+        Err(err) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "status": "error",
+                "message": err
+            })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn probe_server(Json(payload): Json<ServerProbeRequest>) -> impl IntoResponse {
+    let imap_port: u16 = payload
+        .imap_port
+        .as_deref()
+        .map(|s| s.trim())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(143);
+    let smtp_port = payload
+        .smtp_port
+        .as_deref()
+        .map(|s| s.trim())
+        .and_then(|s| s.parse().ok());
+    let ssl_mode = payload
+        .ssl_mode
+        .as_deref()
+        .map(|s| s.trim())
+        .unwrap_or("STARTTLS");
+
+    match imap_client::probe_server(
+        payload.imap_server.trim(),
+        imap_port,
+        payload.smtp_server.as_deref().map(str::trim),
+        smtp_port,
+        ssl_mode,
+    )
+    .await
+    {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(ServerProbeResponse { status: "ok" }),
+        )
+            .into_response(),
         Err(err) => (
             StatusCode::BAD_GATEWAY,
             Json(json!({

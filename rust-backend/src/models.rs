@@ -90,6 +90,21 @@ pub struct MailboxPreviewRequest {
     pub ssl_mode: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerProbeRequest {
+    pub imap_server: String,
+    pub imap_port: Option<String>,
+    pub smtp_server: Option<String>,
+    pub smtp_port: Option<String>,
+    pub ssl_mode: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ServerProbeResponse {
+    pub status: &'static str,
+}
+
 #[derive(Serialize)]
 pub struct MailboxPreviewResponse {
     pub mailboxes: Vec<String>,

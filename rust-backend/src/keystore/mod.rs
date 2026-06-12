@@ -47,7 +47,12 @@ mod platform {
         SecItemAdd, SecItemCopyMatching, SecItemUpdate,
     };
 
-    const errSecUserCanceled: core_foundation_sys::base::OSStatus = -128;
+    extern "C" {
+        static kSecUseOperationPrompt: core_foundation_sys::string::CFStringRef;
+        static kSecUseDataProtectionKeychain: core_foundation_sys::string::CFStringRef;
+    }
+
+    const ERR_SEC_USER_CANCELED: core_foundation_sys::base::OSStatus = -128;
 
     fn cf_string_const<T>(ptr: *const T) -> CFType {
         unsafe { CFType::wrap_under_get_rule(ptr as _) }
@@ -76,6 +81,7 @@ mod platform {
         let account = CFString::new(ENTRY_NAME).as_CFType();
         let prompt_cf = CFString::new(prompt).as_CFType();
         let return_true = CFBoolean::true_value().as_CFType();
+        let use_data_protection_keychain = CFBoolean::true_value().as_CFType();
         let (key_class, class_generic, key_service, key_account, key_return, key_match) = unsafe {
             (
                 cf_string_const(kSecClass),
@@ -87,7 +93,8 @@ mod platform {
             )
         };
         let match_one = CFNumber::from(1).as_CFType();
-        let key_prompt = CFString::new("uops").as_CFType();
+        let key_prompt = unsafe { cf_string_const(kSecUseOperationPrompt) };
+        let key_data_protection = unsafe { cf_string_const(kSecUseDataProtectionKeychain) };
 
         let query = CFDictionary::from_CFType_pairs(&[
             (key_class.clone(), class_generic.clone()),
@@ -96,6 +103,7 @@ mod platform {
             (key_return.clone(), return_true.clone()),
             (key_match.clone(), match_one.clone()),
             (key_prompt.clone(), prompt_cf.clone()),
+            (key_data_protection.clone(), use_data_protection_keychain.clone()),
         ]);
 
         let mut result: CFTypeRef = std::ptr::null_mut();
@@ -103,7 +111,7 @@ mod platform {
         if status == errSecItemNotFound {
             return Err(KeyStoreError::NotFound);
         }
-        if status == errSecUserCanceled {
+        if status == ERR_SEC_USER_CANCELED {
             return Err(KeyStoreError::Denied);
         }
         if status != errSecSuccess {
@@ -126,6 +134,7 @@ mod platform {
         let account = CFString::new(ENTRY_NAME).as_CFType();
         let data = CFData::from_buffer(key).as_CFType();
         let access = make_access_control()?;
+        let use_data_protection_keychain = CFBoolean::true_value().as_CFType();
 
         let access_cf = unsafe { CFType::wrap_under_create_rule(access as _) };
         let (key_class, class_generic, key_service, key_account, key_value, key_access) = unsafe {
@@ -138,6 +147,7 @@ mod platform {
                 cf_string_const(kSecAttrAccessControl),
             )
         };
+        let key_data_protection = unsafe { cf_string_const(kSecUseDataProtectionKeychain) };
 
         let add = CFDictionary::from_CFType_pairs(&[
             (key_class.clone(), class_generic.clone()),
@@ -145,6 +155,7 @@ mod platform {
             (key_account.clone(), account.clone()),
             (key_value.clone(), data.clone()),
             (key_access.clone(), access_cf.clone()),
+            (key_data_protection.clone(), use_data_protection_keychain.clone()),
         ]);
 
         let status = unsafe { SecItemAdd(add.as_concrete_TypeRef(), std::ptr::null_mut()) };
@@ -153,6 +164,7 @@ mod platform {
                 (key_class.clone(), class_generic.clone()),
                 (key_service.clone(), service.clone()),
                 (key_account.clone(), account.clone()),
+                (key_data_protection.clone(), use_data_protection_keychain.clone()),
             ]);
             let update = CFDictionary::from_CFType_pairs(&[
                 (key_value.clone(), data.clone()),
