@@ -114,7 +114,16 @@ export function OfflineSyncProvider({ children }) {
         const lastFlushAt = lastFlushAtRef.current
         const isStale = lastFlushAt > 0 && Date.now() - lastFlushAt > STALE_FLUSH_MS
         const cooldownOk = Date.now() - lastSyncAttemptAtRef.current >= SYNC_COOLDOWN_MS
-        const shouldFlush = networkOnline && cooldownOk && (depth > 0 || isStale)
+
+        // Consider the server reported last_sync_at stale if absent or older than STALE_FLUSH_MS.
+        let lastSyncAtMs = 0
+        if (data?.last_sync_at) {
+          const parsed = Date.parse(data.last_sync_at)
+          if (!Number.isNaN(parsed)) lastSyncAtMs = parsed
+        }
+        const lastSyncStale = lastSyncAtMs === 0 || (Date.now() - lastSyncAtMs > STALE_FLUSH_MS)
+
+        const shouldFlush = networkOnline && cooldownOk && (depth > 0 || isStale || (data?.imap_reachable && lastSyncStale))
         if (shouldFlush) {
           lastSyncAttemptAtRef.current = Date.now()
           const ok = await runSyncNow(accountId)

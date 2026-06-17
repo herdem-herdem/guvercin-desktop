@@ -176,6 +176,10 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
             post(offline_routes::sync_now),
         )
         .route(
+            "/api/offline/:account_id/sync-mailbox",
+            post(offline_routes::sync_mailbox),
+        )
+        .route(
             "/api/offline/:account_id/local-list",
             get(offline_routes::get_local_mail_list),
         )

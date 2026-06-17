@@ -1618,17 +1618,20 @@ const DashboardPage = () => {
         }
     }, [accountId, backendReachable])
 
-    const syncMailsFromRemote = useCallback(async (targetFolder) => {
+    const syncMailsFromRemote = useCallback(async (targetFolder, page = 1, perPageArg, forceAll = false) => {
         const folder = targetFolder || selectedFolder
+        const per = perPageArg || perPage
         if (!accountId || !remoteMailAvailable || !folder || listMode === 'search') return false
         try {
-            const res = await fetch(apiUrl(`/api/offline/${accountId}/sync-mailbox?mailbox=${encodeURIComponent(folder)}`), { method: 'POST' })
+            const params = new URLSearchParams({ mailbox: folder, page: String(page), per_page: String(per) })
+            if (forceAll) params.set('force_all', '1')
+            const res = await fetch(apiUrl(`/api/offline/${accountId}/sync-mailbox?${params.toString()}`), { method: 'POST' })
             return res.ok
         } catch (err) {
             console.error('Error syncing mails from remote:', err)
             return false
         }
-    }, [accountId, remoteMailAvailable, listMode, selectedFolder])
+    }, [accountId, remoteMailAvailable, listMode, selectedFolder, perPage])
 
     const loadMails = useCallback(async (options = {}) => {
         const { forceRemote = false, allowCache = true, background = false } = options
@@ -1660,7 +1663,7 @@ const DashboardPage = () => {
             }
 
             if (forceRemote || remoteMailAvailable) {
-                const ok = await syncMailsFromRemote(selectedFolder)
+                const ok = await syncMailsFromRemote(selectedFolder, currentPage, perPage)
                 if (ok) {
                     cachedCount = await loadMailsFromCache(selectedFolder)
                     void fetchMailboxCounts()

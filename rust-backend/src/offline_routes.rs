@@ -44,6 +44,18 @@ pub struct LocalMailListQuery {
     pub per_page: usize,
 }
 
+#[derive(Deserialize)]
+pub struct SyncMailboxQuery {
+    #[serde(default = "default_inbox")]
+    pub mailbox: String,
+    #[serde(default = "default_page")]
+    pub page: usize,
+    #[serde(default = "default_per_page")]
+    pub per_page: usize,
+    #[serde(default)]
+    pub force_all: Option<bool>,
+}
+
 struct AccountImapSettings {
     email: String,
     imap_host: String,
@@ -951,6 +963,111 @@ pub async fn get_local_mail_list(
     Ok(Json(MailListResponse {
         total_count: total.max(0) as usize,
         mails,
+    }))
+}
+
+pub async fn sync_mailbox(
+    State(state): State<Arc<MailAppState>>,
+    Path(account_id): Path<i64>,
+    Query(q): Query<SyncMailboxQuery>,
+) -> Result<Json<SyncNowResponse>, AppError> {
+    let mailbox = q.mailbox.trim().to_string();
+    let mailbox = if mailbox.is_empty() { "INBOX".to_string() } else { mailbox };
+
+    // Ensure IMAP connected
+    let _ = ensure_imap_connected(&state._db, &state.imap, account_id).await;
+
+    let pool = db::get_user_db_pool(&state._db, account_id).await?;
+    let (_includes, _excludes, mut policy) = load_sync_rules_and_policy(&pool).await?;
+
+    if q.force_all.unwrap_or(false) {
+        policy.mode = "all".to_string();
+        policy.value = None;
+    }
+
+    // Determine how many messages the frontend wants cached (page * per_page)
+    let target_needed = q.page.saturating_mul(q.per_page) as i64;
+    let existing_count: i64 = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(1) FROM local_mail_cache WHERE folder = ?",
+    )
+    .bind(&mailbox)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+
+    if existing_count >= target_needed && !q.force_all.unwrap_or(false) {
+        // nothing to do
+        return Ok(Json(SyncNowResponse { status: "ok", processed: 0, failed: 0 }));
+    }
+
+    // Fetch required pages from IMAP (page 1 contains newest messages)
+    let mut processed = 0usize;
+    let mut failed = 0usize;
+    let pages_to_fetch = q.page.max(1);
+    for page_i in 1..=pages_to_fetch {
+        let (total, previews) = tokio::task::spawn_blocking({
+            let imap_state = state.imap.clone();
+            let mailbox = mailbox.clone();
+            move || imap_session::fetch_mail_list(&imap_state, account_id, &mailbox, page_i, q.per_page)
+        })
+        .await
+        .unwrap_or_default();
+
+        // Insert previews and bodies where missing
+        for preview in previews {
+            let uid = preview.id.clone();
+            // check existence
+            let exists_opt = sqlx::query_scalar::<_, i64>(
+                "SELECT 1 FROM local_mail_cache WHERE uid = ? AND folder = ? LIMIT 1",
+            )
+            .bind(&uid)
+            .bind(&mailbox)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+            let exists = exists_opt.is_some();
+
+            if exists && !q.force_all.unwrap_or(false) {
+                continue;
+            }
+
+            if let Err(e) = cache_mail_preview(&pool, &mailbox, &preview).await {
+                tracing::warn!("cache preview failed: {}", e);
+                failed += 1;
+                continue;
+            }
+            if let Err(e) = cache_mail_body_if_missing(&pool, &state.imap, account_id, &mailbox, &uid, policy.cache_raw_rfc822).await {
+                tracing::warn!("cache body failed: {}", e);
+                // don't increment failed for body-only failures
+            }
+            processed += 1;
+        }
+
+        // stop early if we've reached the target
+        let now_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(1) FROM local_mail_cache WHERE folder = ?",
+        )
+        .bind(&mailbox)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+        if now_count >= target_needed {
+            break;
+        }
+        // if IMAP reports fewer messages than needed, break
+        if total == 0 {
+            break;
+        }
+    }
+
+    // Update last sync time
+    let _ = touch_last_sync_time(&state._db, account_id).await;
+
+    Ok(Json(SyncNowResponse {
+        status: "ok",
+        processed,
+        failed,
     }))
 }
 
@@ -3494,7 +3611,6 @@ async fn sync_single_mailbox(
     policy: &SyncPolicy,
 ) -> Result<(), AppError> {
     let per_page = 50usize;
-    let cutoff = policy_cutoff(policy);
     let limit = policy
         .value
         .filter(|_| policy.mode == "by_count")
@@ -3508,6 +3624,9 @@ async fn sync_single_mailbox(
     .await?
     .map(|v: i64| v.max(0) as u32)
     .unwrap_or(0);
+
+    // Apply the by_days cutoff only during initial sync (when checkpoint UID == 0).
+    let cutoff = if last_synced_uid == 0 { policy_cutoff(policy) } else { None };
 
     let (_total, new_uids) = tokio::task::spawn_blocking({
         let imap_state = imap_state.clone();

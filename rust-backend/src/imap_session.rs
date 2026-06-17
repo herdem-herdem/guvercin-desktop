@@ -264,6 +264,9 @@ impl ImapSession {
             Ok(set) => {
                 let mut v: Vec<u32> = set.into_iter().collect();
                 v.sort_unstable();
+                // Return newest-first order to make cutoff logic in sync_single_mailbox
+                // (which stops when encountering older messages) work reliably.
+                v.reverse();
                 v
             }
             Err(e) => {
