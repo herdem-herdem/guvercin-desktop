@@ -120,6 +120,20 @@ pub async fn setup_account(
         };
         (StatusCode::OK, Json(body)).into_response()
     } else {
+        // Log a concise warning for failed setup attempts (avoid logging passwords)
+        tracing::warn!("Setup failed for email={} imap_server={} imap_port={} -- {}", &email, form.imap_server, imap_port, message);
+
+        // Provide a more helpful user-facing message for common IMAP failures
+        let mut display_message = message.clone();
+        let lower = message.to_lowercase();
+        if lower.contains("invalid credentials") || lower.contains("authenticationfailed") || lower.contains("login failed") || lower.contains("no such user") {
+            display_message = format!("{} {}", message, tr("Your mail provider may require an app-specific password or OAuth2. Check the provider's account/security settings."));
+        } else if lower.contains("connect") || lower.contains("gai") || lower.contains("timed out") || lower.contains("connection refused") {
+            display_message = format!("{} {}", message, tr("Could not reach the IMAP server. Verify host, port, and SSL mode in advanced settings."));
+        } else if lower.contains("certificate") || lower.contains("name mismatch") {
+            display_message = format!("{} {}", message, tr("TLS verification failed for the IMAP server. You can try disabling SSL verification for testing (not recommended)."));
+        }
+
         let form_data = SetupFailureFormData {
             email: email.clone(),
             display_name: form.display_name.clone().unwrap_or_default(),
@@ -132,7 +146,7 @@ pub async fn setup_account(
 
         let body = SetupFailureResponse {
             status: "failure",
-            message,
+            message: display_message,
             form_data,
         };
 

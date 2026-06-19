@@ -978,88 +978,95 @@ pub async fn sync_mailbox(
     let _ = ensure_imap_connected(&state._db, &state.imap, account_id).await;
 
     let pool = db::get_user_db_pool(&state._db, account_id).await?;
-    let (_includes, _excludes, mut policy) = load_sync_rules_and_policy(&pool).await?;
 
-    if q.force_all.unwrap_or(false) {
-        policy.mode = "all".to_string();
-        policy.value = None;
-    }
+    // Use a large per-page size for efficient batching. We always sync ALL pages so the
+    // full mail list is visible regardless of by_days or any other download policy.
+    // Body download is handled separately by the background incremental sync (sync_now).
+    let per_page = q.per_page.max(50);
+    let force_all = q.force_all.unwrap_or(false);
 
-    // Determine how many messages the frontend wants cached (page * per_page)
-    let target_needed = q.page.saturating_mul(q.per_page) as i64;
-    let existing_count: i64 = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(1) FROM local_mail_cache WHERE folder = ?",
-    )
-    .bind(&mailbox)
-    .fetch_one(&pool)
+    let mut processed = 0usize;
+    let mut failed = 0usize;
+
+    // Fetch page 1 first to discover the total message count for this mailbox.
+    let (total, first_previews) = tokio::task::spawn_blocking({
+        let imap_state = state.imap.clone();
+        let mailbox_c = mailbox.clone();
+        move || imap_session::fetch_mail_list(&imap_state, account_id, &mailbox_c, 1, per_page)
+    })
     .await
-    .unwrap_or(0);
+    .unwrap_or_default();
 
-    if existing_count >= target_needed && !q.force_all.unwrap_or(false) {
-        // nothing to do
+    if total == 0 {
+        let _ = touch_last_sync_time(&state._db, account_id).await;
         return Ok(Json(SyncNowResponse { status: "ok", processed: 0, failed: 0 }));
     }
 
-    // Fetch required pages from IMAP (page 1 contains newest messages)
-    let mut processed = 0usize;
-    let mut failed = 0usize;
-    let pages_to_fetch = q.page.max(1);
-    for page_i in 1..=pages_to_fetch {
-        let (total, previews) = tokio::task::spawn_blocking({
+    // Determine how many pages exist in this mailbox.
+    let total_pages = (total + per_page - 1) / per_page;
+
+    // Inner function: write a batch of previews into local_mail_cache (headers only, no body).
+    async fn insert_previews(
+        pool: &SqlitePool,
+        mailbox: &str,
+        previews: Vec<crate::mail_models::MailPreview>,
+        force_all: bool,
+    ) -> (usize, usize) {
+        let mut ok = 0usize;
+        let mut fail = 0usize;
+        for preview in previews {
+            let uid = preview.id.clone();
+            let exists: bool = sqlx::query_scalar::<_, i64>(
+                "SELECT 1 FROM local_mail_cache WHERE uid = ? AND folder = ? LIMIT 1",
+            )
+            .bind(&uid)
+            .bind(mailbox)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+
+            if exists && !force_all {
+                continue;
+            }
+
+            match cache_mail_preview(pool, mailbox, &preview).await {
+                Ok(_) => ok += 1,
+                Err(e) => {
+                    tracing::warn!("sync_mailbox: cache preview failed uid={uid}: {e}");
+                    fail += 1;
+                }
+            }
+        }
+        (ok, fail)
+    }
+
+    // Process page 1 that we already fetched.
+    let (p, f) = insert_previews(&pool, &mailbox, first_previews, force_all).await;
+    processed += p;
+    failed += f;
+
+    // Fetch and process remaining pages (2..=total_pages).
+    for page_i in 2..=total_pages {
+        let (pg_total, previews) = tokio::task::spawn_blocking({
             let imap_state = state.imap.clone();
-            let mailbox = mailbox.clone();
-            move || imap_session::fetch_mail_list(&imap_state, account_id, &mailbox, page_i, q.per_page)
+            let mailbox_c = mailbox.clone();
+            move || imap_session::fetch_mail_list(&imap_state, account_id, &mailbox_c, page_i, per_page)
         })
         .await
         .unwrap_or_default();
 
-        // Insert previews and bodies where missing
-        for preview in previews {
-            let uid = preview.id.clone();
-            // check existence
-            let exists_opt = sqlx::query_scalar::<_, i64>(
-                "SELECT 1 FROM local_mail_cache WHERE uid = ? AND folder = ? LIMIT 1",
-            )
-            .bind(&uid)
-            .bind(&mailbox)
-            .fetch_optional(&pool)
-            .await
-            .ok()
-            .flatten();
-            let exists = exists_opt.is_some();
+        let (p, f) = insert_previews(&pool, &mailbox, previews, force_all).await;
+        processed += p;
+        failed += f;
 
-            if exists && !q.force_all.unwrap_or(false) {
-                continue;
-            }
-
-            if let Err(e) = cache_mail_preview(&pool, &mailbox, &preview).await {
-                tracing::warn!("cache preview failed: {}", e);
-                failed += 1;
-                continue;
-            }
-            if let Err(e) = cache_mail_body_if_missing(&pool, &state.imap, account_id, &mailbox, &uid, policy.cache_raw_rfc822).await {
-                tracing::warn!("cache body failed: {}", e);
-                // don't increment failed for body-only failures
-            }
-            processed += 1;
-        }
-
-        // stop early if we've reached the target
-        let now_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(1) FROM local_mail_cache WHERE folder = ?",
-        )
-        .bind(&mailbox)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or(0);
-        if now_count >= target_needed {
-            break;
-        }
-        // if IMAP reports fewer messages than needed, break
-        if total == 0 {
+        if pg_total == 0 {
             break;
         }
     }
+
+    tracing::info!("sync_mailbox: {mailbox} total={total} pages={total_pages} processed={processed} failed={failed}");
 
     // Update last sync time
     let _ = touch_last_sync_time(&state._db, account_id).await;

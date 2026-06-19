@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { apiUrl, apiReady } from './utils/api'
 import LoginPage from './pages/LoginPage.jsx'
-import FontPage from './pages/FontPage.jsx'
 import OfflineSetupPage from './pages/OfflineSetupPage.jsx'
 import NotAuthPage from './pages/NotAuthPage.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
@@ -71,15 +70,11 @@ function App() {
 
     const tempFont = localStorage.getItem('temp_font')
     const savedFont = localStorage.getItem('font')
-    const onboardingPaths = ['/login', '/font', '/theme', '/offline-setup', '/not_auth', '/settings', '/account-settings']
+    const onboardingPaths = ['/login', '/theme', '/offline-setup', '/not_auth', '/settings', '/account-settings']
 
-    let fontToUse = "'Inter', sans-serif"
+    let fontToUse = '"Neue Haas Grotesk Text Pro", "Neue Haas Grotesk Display Pro", "Helvetica Neue", Helvetica, Arial, sans-serif'
 
-    if (onboardingPaths.includes(path)) {
-      if (tempFont) {
-        fontToUse = `"${tempFont}", sans-serif`
-      }
-    } else if (
+    if (
       path.startsWith('/dashboard')
       || windowLabel === 'mail'
       || windowLabel.startsWith('mail-')
@@ -87,9 +82,6 @@ function App() {
       || windowLabel.startsWith('compose-')
       || isDetachedWindow
     ) {
-      if (savedFont) {
-        fontToUse = `"${savedFont}", sans-serif`
-      }
       
       document.body.style.padding = '0'
       document.body.style.margin = '0'
@@ -127,7 +119,6 @@ function App() {
         <Route path="/index.html" element={<Navigate to="/" replace />} />
         <Route path="/account-select" element={<AccountSelectionPage />} />
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/font" element={<FontPage />} />
         <Route path="/theme" element={<ThemePage />} />
         <Route path="/offline-setup" element={<OfflineSetupPage />} />
         <Route path="/not_auth" element={<NotAuthPage />} />

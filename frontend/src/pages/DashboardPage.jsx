@@ -1534,9 +1534,9 @@ const DashboardPage = () => {
     const foldersLoadedRef = useRef(null)
 
     const loadFolders = useCallback(async () => {
-        if (!accountId || !backendReachable) return
+        if (!accountId) return
         try {
-            // First load from local cache
+            // First load from local cache (always available, no backendReachable required)
             let localRes = await fetch(apiUrl(`/api/offline/${accountId}/local-mailboxes`), { cache: 'no-store' })
             if (localRes.ok) {
                 const data = await localRes.json()
@@ -1545,8 +1545,8 @@ const DashboardPage = () => {
                 setLabels(prev => (JSON.stringify(prev) === JSON.stringify(normalized.labels) ? prev : normalized.labels))
             }
 
-            // Then try remote if online
-            if (networkOnline) {
+            // Then try remote if online and backend is reachable
+            if (networkOnline && backendReachable) {
                 const ok = remoteMailAvailable || (await ensureImapConnected())
                 if (ok) {
                     const remoteRes = await fetch(apiUrl(`/api/mail/${accountId}/mailboxes`), { cache: 'no-store' })
@@ -1575,7 +1575,7 @@ const DashboardPage = () => {
 
     const loadMailsFromCache = useCallback(async (folder) => {
         if (listModeRef.current === 'search') return 0
-        if (!accountId || !backendReachable) return 0
+        if (!accountId) return 0
         const mailbox = (folder || '').toString().trim()
         if (!mailbox) return 0
         try {
@@ -1616,7 +1616,7 @@ const DashboardPage = () => {
             console.error('Error loading mails from cache:', err)
             return 0
         }
-    }, [accountId, backendReachable])
+    }, [accountId])
 
     const syncMailsFromRemote = useCallback(async (targetFolder, page = 1, perPageArg, forceAll = false) => {
         const folder = targetFolder || selectedFolder
@@ -1634,8 +1634,9 @@ const DashboardPage = () => {
     }, [accountId, remoteMailAvailable, listMode, selectedFolder, perPage])
 
     const loadMails = useCallback(async (options = {}) => {
-        const { forceRemote = false, allowCache = true, background = false } = options
-        if (!accountId || !backendReachable) return
+        const { forceRemote = false, allowCache = true, background = false, skipRemoteSync = false } = options
+        // Cache is always available (local SQLite). Only remote operations need backendReachable.
+        if (!accountId) return
         if (listModeRef.current === 'search') return
 
         const currentMails = Array.isArray(mailsRef.current) ? mailsRef.current : []
@@ -1662,15 +1663,20 @@ const DashboardPage = () => {
                 }
             }
 
-            if (forceRemote || remoteMailAvailable) {
-                const ok = await syncMailsFromRemote(selectedFolder, currentPage, perPage)
-                if (ok) {
-                    cachedCount = await loadMailsFromCache(selectedFolder)
-                    void fetchMailboxCounts()
-                    if (shouldShowLoading && cachedCount > 0 && mailLoadRequestIdRef.current === requestId) {
-                        setLoadingMails(false)
+            // Remote preview-sync: fetch ALL IMAP pages and insert previews into local_mail_cache.
+            // This is intentionally fired in the background (void) because it can be slow for
+            // large mailboxes. The 3 s during-sync poller and the transfer-complete hook refresh
+            // the displayed list as pages land in the DB.
+            // skipRemoteSync=true is used by auto-refresh and during-sync pollers so they only
+            // read from cache without hammering IMAP every 15 s.
+            if (!skipRemoteSync && backendReachable && (forceRemote || remoteMailAvailable)) {
+                const SYNC_PAGE_SIZE = 250
+                void syncMailsFromRemote(selectedFolder, 1, SYNC_PAGE_SIZE).then((ok) => {
+                    if (ok) {
+                        void loadMailsFromCache(selectedFolder)
+                        void fetchMailboxCounts()
                     }
-                }
+                })
             }
         } finally {
             if (shouldShowLoading && mailLoadRequestIdRef.current === requestId) {
@@ -1680,7 +1686,8 @@ const DashboardPage = () => {
     }, [accountId, backendReachable, remoteMailAvailable, selectedFolder, loadMailsFromCache, syncMailsFromRemote, fetchMailboxCounts])
 
     useEffect(() => {
-        if (!accountId || !backendReachable || listMode === 'search') return
+        // Load from cache immediately when account is set; remote sync happens inside loadMails
+        if (!accountId || listMode === 'search') return
         loadMails({ allowCache: true, forceRemote: false })
     }, [accountId, backendReachable, listMode, selectedFolder, loadMails])
 
@@ -1694,13 +1701,48 @@ const DashboardPage = () => {
     }, [activeSection, backendReachable, remoteMailAvailable, loadFolders])
 
     useEffect(() => {
-        const currentRefKey = `${accountId}-${backendReachable}-${activeSection}`
-        if (accountId && activeSection === 'mail' && backendReachable) {
+        // Load folders from cache immediately; remote fetch happens inside loadFolders
+        const currentRefKey = `${accountId}-${activeSection}`
+        if (accountId && activeSection === 'mail') {
             if (foldersLoadedRef.current === currentRefKey) return
             foldersLoadedRef.current = currentRefKey
             loadFolders()
         }
-    }, [accountId, activeSection, backendReachable, loadFolders])
+    }, [accountId, activeSection, loadFolders])
+
+    // When a background sync transfer completes, immediately reload the mail list from cache
+    // so newly downloaded emails appear without waiting for the 15s auto-refresh timer.
+    const prevTransferRef = useRef(null)
+    useEffect(() => {
+        const prev = prevTransferRef.current
+        prevTransferRef.current = transfer
+        const justFinished = prev && !transfer
+        if (justFinished && activeSection === 'mail' && accountId && listMode !== 'search') {
+            void loadMailsFromCache(selectedFolder)
+            void fetchMailboxCounts()
+        }
+    }, [transfer, activeSection, accountId, listMode, loadMailsFromCache, selectedFolder, fetchMailboxCounts])
+
+    // While a background sync is actively downloading, poll cache every 3 s so newly
+    // synced emails appear in the list without waiting for the full sync to finish.
+    useEffect(() => {
+        if (!accountId || activeSection !== 'mail' || listMode === 'search') return
+        if (!transfer || !selectedFolder) return
+
+        let cancelled = false
+        const DURING_SYNC_INTERVAL_MS = 3_000
+
+        const tick = async () => {
+            if (cancelled) return
+            await loadMailsFromCache(selectedFolder)
+        }
+
+        const timer = window.setInterval(tick, DURING_SYNC_INTERVAL_MS)
+        return () => {
+            cancelled = true
+            window.clearInterval(timer)
+        }
+    }, [transfer, accountId, activeSection, listMode, loadMailsFromCache, selectedFolder])
 
     useEffect(() => {
         if (!Array.isArray(folders) || folders.length === 0) return
@@ -1735,7 +1777,7 @@ const DashboardPage = () => {
             if (autoRefreshInFlightRef.current) return
             autoRefreshInFlightRef.current = true
 	            try {
-	                await loadMails({ allowCache: true, forceRemote: false, background: true })
+	                await loadMails({ allowCache: true, forceRemote: false, background: true, skipRemoteSync: true })
 	                if (cancelled) return
 	                void fetchMailboxCounts()
 	            } finally {

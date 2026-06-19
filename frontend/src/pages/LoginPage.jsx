@@ -658,7 +658,7 @@ function LoginPage() {
             clearDraft()
 
             setTimeout(() => {
-                navigate('/font')
+                navigate('/theme')
             }, 2000)
         } catch (error) {
             console.error('Error Details:', error)
