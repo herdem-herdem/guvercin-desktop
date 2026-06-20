@@ -21,6 +21,8 @@ pub struct AppState {
     pub transfer_progress: Arc<Mutex<HashMap<i64, TransferSnapshot>>>,
     user_db_pools: Arc<Mutex<HashMap<i64, SqlitePool>>>,
     inner: Arc<RwLock<Option<Arc<AppStateInner>>>>,
+    // Prevent concurrent initialization which can cause duplicate keyring prompts
+    init_lock: Arc<Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -103,6 +105,7 @@ impl AppState {
             transfer_progress: Arc::new(Mutex::new(HashMap::new())),
             user_db_pools: Arc::new(Mutex::new(HashMap::new())),
             inner: Arc::new(RwLock::new(inner)),
+            init_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -111,6 +114,13 @@ impl AppState {
     }
 
     pub async fn ensure_ready(&self, create_if_missing: bool) -> Result<Arc<AppStateInner>, AppError> {
+        if let Some(inner) = self.ready_or_none().await {
+            return Ok(inner);
+        }
+
+        // Serialize initialization so multiple concurrent callers don't each trigger the
+        // OS keyring prompt. Acquire init_lock and re-check inner after obtaining it.
+        let _init_guard = self.init_lock.lock().await;
         if let Some(inner) = self.ready_or_none().await {
             return Ok(inner);
         }
