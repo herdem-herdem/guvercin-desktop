@@ -2629,6 +2629,7 @@ const DashboardPage = () => {
                                 queueAction={queueAction}
                                 createMailbox={createMailbox}
                                 canUseRemoteMail={canUseRemoteMail}
+                                remoteMailAvailable={remoteMailAvailable}
                                 inlineComposeSession={inlineComposeSession}
                                 setInlineComposeSession={setInlineComposeSession}
                                 sendComposedMail={sendComposedMail}
@@ -2967,7 +2968,7 @@ function MailSection({
     currentPage, setCurrentPage, maxPage: _maxPage, perPage, setPerPage,
     isMailFullscreen, toggleMailFullscreen,
     deleteMailsOptimistic, moveMailsOptimistic, setMailsSeenState, queueAction, createMailbox,
-    canUseRemoteMail, inlineComposeSession, setInlineComposeSession, sendComposedMail, saveComposeDraft, enqueueUndoableAction,
+    canUseRemoteMail, remoteMailAvailable, inlineComposeSession, setInlineComposeSession, sendComposedMail, saveComposeDraft, enqueueUndoableAction,
     tabs, setTabs, activeTabId, setActiveTabId, tabContents, setTabContents, loadingTab, setLoadingTab,     nextTabId,
     accountForm,
     mailboxCounts,
@@ -6052,7 +6053,14 @@ function MailSection({
                             {!!(activeTabContent?.bcc || '').trim() && <div className="db-mail-meta"><strong>BCC:</strong> {activeTabContent.bcc}</div>}
                             <div className="db-mail-meta"><strong>Date:</strong> {formatMailDateLong(activeTabContent?.date || activeTabMail?.date)}</div>
                             <hr className="db-mail-divider" />
-                            {activeTabContent?.html_body ? (
+                            {!activeTabContent ? (
+                                <div className="db-mail-body">
+                                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-tertiary, #888)' }}>
+                                        <img src="/img/icons/offline.svg" style={{ width: 48, height: 48, opacity: 0.5, marginBottom: '1rem' }} alt="" />
+                                        <div>{remoteMailAvailable ? 'Failed to load message content.' : 'Message not downloaded for offline use.'}</div>
+                                    </div>
+                                </div>
+                            ) : activeTabContent.html_body ? (
                                 <div className="db-mail-body-html">
                                     <iframe
                                         ref={el => { tabIframeRefs.current[activeTabId] = el }}
@@ -6061,7 +6069,7 @@ function MailSection({
                                     />
                                 </div>
                             ) : (
-                                <div className="db-mail-body">{activeTabContent?.plain_body || '(No content)'}</div>
+                                <div className="db-mail-body">{activeTabContent.plain_body || '(No content)'}</div>
                             )}
                             {activeTabContent?.attachments?.length > 0 && (
                                 <div className="db-attachments">
@@ -7195,12 +7203,19 @@ function MailSection({
                                                                 <div className="db-thread-reader-body">
                                                                     {isLoading && !content ? (
                                                                         <div className="db-thread-reader-loading">Loading...</div>
-                                                                    ) : content?.html_body ? (
+                                                                    ) : !content ? (
+                                                                        <div className="db-mail-body">
+                                                                            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-tertiary, #888)' }}>
+                                                                                <img src="/img/icons/offline.svg" style={{ width: 48, height: 48, opacity: 0.5, marginBottom: '1rem' }} alt="" />
+                                                                                <div>{remoteMailAvailable ? 'Failed to load message content.' : 'Message not downloaded for offline use.'}</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : content.html_body ? (
                                                                         <div className="db-mail-body-html">
                                                                             <ResizableHtmlIframe title={`mail-content-${id}`} html={content.html_body} onLinkClick={onExternalLink} />
                                                                         </div>
                                                                     ) : (
-                                                                        <div className="db-mail-body">{content?.plain_body || '(No content)'}</div>
+                                                                        <div className="db-mail-body">{content.plain_body || '(No content)'}</div>
                                                                     )}
                                                                 </div>
                                                             )}
@@ -7215,10 +7230,17 @@ function MailSection({
                                                 {!!(mailContent?.bcc || '').trim() && <div className="db-mail-meta"><strong>BCC:</strong> {mailContent.bcc}</div>}
                                                 <div className="db-mail-meta"><strong>Date:</strong> {formatMailDateLong(mailContent?.date || selectedMail.date)}</div>
                                                 <hr className="db-mail-divider" />
-                                                {mailContent?.html_body ? (
+                                                {!mailContent ? (
+                                                    <div className="db-mail-body">
+                                                        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-tertiary, #888)' }}>
+                                                            <img src="/img/icons/offline.svg" style={{ width: 48, height: 48, opacity: 0.5, marginBottom: '1rem' }} alt="" />
+                                                            <div>{remoteMailAvailable ? 'Failed to load message content.' : 'Message not downloaded for offline use.'}</div>
+                                                        </div>
+                                                    </div>
+                                                ) : mailContent.html_body ? (
                                                     <div className="db-mail-body-html"><iframe ref={iframeRef} title="mail-content" sandbox="allow-same-origin allow-scripts" /></div>
                                                 ) : (
-                                                    <div className="db-mail-body">{mailContent?.plain_body || '(No content)'}</div>
+                                                    <div className="db-mail-body">{mailContent.plain_body || '(No content)'}</div>
                                                 )}
                                                 {mailContent?.attachments?.length > 0 && (
                                                     <div className="db-attachments">
