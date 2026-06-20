@@ -2360,7 +2360,7 @@ const DashboardPage = () => {
                 mailIframeLinkCleanupRef.current = null
             }
         }
-    }, [iframeRef, mailContent, handleExternalLink])
+    }, [iframeRef, mailContent, handleExternalLink, activeSection])
 
     useEffect(() => {
         if (mailContent?.html_body) return
