@@ -429,20 +429,22 @@ pub async fn get_user_db_pool(state: &AppState, account_id: i64) -> Result<Sqlit
             && tokio::fs::metadata(&user_db_path).await.map(|m| m.len() > 0).unwrap_or(false);
         if exists && !is_plaintext_sqlite(&user_db_path).await {
             // DB is still SQLCipher — try to migrate using keyring key
-            match keystore::load_master_key(crate::crypto::KEYRING_PROMPT).await {
-                Ok(raw) => {
-                    if let Ok(crypto) = CryptoManager::from_raw(raw) {
-                        if let Ok(key_hex) = crypto.sqlcipher_key_hex_for_db(&user_db_path) {
-                            let _ = migrate_sqlcipher_to_plaintext(&user_db_path, &key_hex).await;
-                        }
+        // Serialize access to the system keyring to avoid duplicate OS prompts
+        let _guard = state.init_lock.lock().await;
+        match keystore::load_master_key(crate::crypto::KEYRING_PROMPT).await {
+            Ok(raw) => {
+                if let Ok(crypto) = CryptoManager::from_raw(raw) {
+                    if let Ok(key_hex) = crypto.sqlcipher_key_hex_for_db(&user_db_path) {
+                        let _ = migrate_sqlcipher_to_plaintext(&user_db_path, &key_hex).await;
                     }
                 }
-                Err(_) => {}
             }
+            Err(_) => {}
         }
-        connect_plain(&user_db_path)
-            .await
-            .map_err(|e| AppError::db(e, &user_db_path_str))?
+    }
+    connect_plain(&user_db_path)
+        .await
+        .map_err(|e| AppError::db(e, &user_db_path_str))?
     };
 
     init_user_db(&pool)
