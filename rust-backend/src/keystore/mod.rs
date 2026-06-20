@@ -1,4 +1,6 @@
 use thiserror::Error;
+use once_cell::sync::Lazy;
+use tokio::sync::Mutex as AsyncMutex;
 
 #[derive(Debug, Error)]
 pub enum KeyStoreError {
@@ -13,11 +15,18 @@ pub enum KeyStoreError {
 pub const SERVICE_NAME: &str = "guvercin";
 pub const ENTRY_NAME: &str = "master-key";
 
+// Global mutex to serialize keychain access. On macOS concurrent SecItemCopyMatching
+// calls can cause multiple system dialogs; serialize them here so only one prompt
+// is ever active at a time.
+static KEYSTORE_OP_LOCK: Lazy<AsyncMutex<()>> = Lazy::new(|| AsyncMutex::new(()));
+
 pub async fn load_master_key(prompt: &str) -> Result<Vec<u8>, KeyStoreError> {
+    let _guard = KEYSTORE_OP_LOCK.lock().await;
     platform::load_master_key(prompt).await
 }
 
 pub async fn store_master_key(prompt: &str, key: &[u8]) -> Result<(), KeyStoreError> {
+    let _guard = KEYSTORE_OP_LOCK.lock().await;
     platform::store_master_key(prompt, key).await
 }
 
