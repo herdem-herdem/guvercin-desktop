@@ -12,6 +12,7 @@ import { useOfflineSync } from '../context/OfflineSyncContext.jsx'
 import { useTheme } from '../context/ThemeContext.jsx'
 import Avatar from '../components/Avatar.jsx'
 import ComposeMailContent from '../components/ComposeMailContent.jsx'
+import MailHeadersPanel from '../components/MailHeadersPanel.jsx'
 import {
     buildDraftSavePayload,
     getComposeTitle,
@@ -34,6 +35,12 @@ import {
     setDomainLinkBehavior,
     setLinkClickBehavior,
 } from '../utils/externalLinks.js'
+import {
+    buildHeaderFallback,
+    buildHeadersFileName,
+    fullMessageFromRawBytes,
+    mailHeadersKey,
+} from '../utils/mailHeaders.js'
 import { clearAccountSession } from '../utils/accountStorage.js'
 import './DashboardPage.css'
 import SettingsPage from './SettingsPage.jsx'
@@ -3025,6 +3032,16 @@ function MailSection({
     const [movePopoverStyle, setMovePopoverStyle] = useState(null)
     const [labelPopoverStyle, setLabelPopoverStyle] = useState(null)
     const [downloadAsPopoverStyle, setDownloadAsPopoverStyle] = useState(null)
+    const [headersPanel, setHeadersPanel] = useState({
+        open: false,
+        key: '',
+        text: '',
+        loading: false,
+        error: '',
+        copied: false,
+        mail: null,
+        content: null,
+    })
     const [mailItemMenu, setMailItemMenu] = useState(null)
     const [mailItemMoveMenuStyle, setMailItemMoveMenuStyle] = useState(null)
     const [mailItemLabelMenuStyle, setMailItemLabelMenuStyle] = useState(null)
@@ -3846,12 +3863,102 @@ function MailSection({
                 if (!response.ok) continue
                 return new Uint8Array(await response.arrayBuffer())
             } catch {
-
+                // Try the next raw source.
             }
         }
 
         return null
     }, [accountId, canUseRemoteMail, selectedFolder])
+
+    const closeHeadersPanel = useCallback(() => {
+        setHeadersPanel((prev) => ({ ...prev, open: false, copied: false }))
+    }, [])
+
+    const openHeadersPanel = useCallback(async (mail, content = null, mailboxOverride = '') => {
+        if (!mail) return
+        const mailbox = mailboxOverride || mail?.mailbox || selectedFolder || 'INBOX'
+        const key = mailHeadersKey(mail, mailbox)
+        const mailWithMailbox = { ...mail, mailbox }
+
+        setHeadersPanel({
+            open: true,
+            key,
+            text: '',
+            loading: true,
+            error: '',
+            copied: false,
+            mail: mailWithMailbox,
+            content,
+        })
+
+        try {
+            const rawBytes = mail?.isImported ? null : await fetchMailRawBytes(mailWithMailbox)
+            const rawMessage = fullMessageFromRawBytes(rawBytes)
+            const text = rawMessage || buildHeaderFallback(mailWithMailbox, content, formatMailDateLong)
+            setHeadersPanel((prev) => (
+                prev.key === key
+                    ? { ...prev, text, loading: false, error: '', mail: mailWithMailbox, content }
+                    : prev
+            ))
+        } catch (error) {
+            const fallback = buildHeaderFallback(mailWithMailbox, content, formatMailDateLong)
+            setHeadersPanel((prev) => (
+                prev.key === key
+                    ? {
+                        ...prev,
+                        text: fallback,
+                        loading: false,
+                        error: fallback ? '' : (error?.message || 'Message source could not be loaded.'),
+                        mail: mailWithMailbox,
+                        content,
+                    }
+                    : prev
+            ))
+        }
+    }, [fetchMailRawBytes, formatMailDateLong, selectedFolder])
+
+    const copyHeadersPanelText = useCallback(async () => {
+        if (!headersPanel.text) return
+        await copyTextToClipboard(headersPanel.text)
+        setHeadersPanel((prev) => ({ ...prev, copied: true }))
+        window.setTimeout(() => {
+            setHeadersPanel((prev) => ({ ...prev, copied: false }))
+        }, 1400)
+    }, [headersPanel.text])
+
+    const downloadHeadersPanelText = useCallback(async () => {
+        if (!headersPanel.text) return
+        const fileName = buildHeadersFileName(headersPanel.mail, headersPanel.content)
+        await saveBlobWithPicker(
+            new Blob([headersPanel.text], { type: 'text/plain;charset=utf-8' }),
+            {
+                suggestedName: fileName,
+                types: [{ description: 'Text file', accept: { 'text/plain': ['.txt'] } }],
+            },
+        )
+    }, [headersPanel.content, headersPanel.mail, headersPanel.text])
+
+    const renderHeadersPanelFor = useCallback((mail, content, mailbox) => {
+        const key = mailHeadersKey(mail, mailbox || mail?.mailbox || selectedFolder || 'INBOX')
+        if (!headersPanel.open || headersPanel.key !== key) return null
+        return (
+            <MailHeadersPanel
+                text={headersPanel.text}
+                loading={headersPanel.loading}
+                error={headersPanel.error}
+                copied={headersPanel.copied}
+                onCopy={copyHeadersPanelText}
+                onDownload={downloadHeadersPanelText}
+                onClose={closeHeadersPanel}
+            />
+        )
+    }, [
+        closeHeadersPanel,
+        copyHeadersPanelText,
+        downloadHeadersPanelText,
+        headersPanel,
+        selectedFolder,
+    ])
 
     const dedupeEmails = (values) => {
         const seen = new Set()
@@ -5737,6 +5844,16 @@ function MailSection({
                                             <button
                                                 className="db-submenu-main-btn"
                                                 type="button"
+                                                disabled={!activeTabMail}
+                                                onClick={() => openHeadersPanel(activeTabMail, activeTabContent, activeTab?.mailbox || activeTabMail?.mailbox || selectedFolder || 'INBOX')}
+                                            >
+                                                {toolbarMainButtonContent(<img src="/img/icons/mail.svg" className="svg-icon-inline" />, 'Source')}
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button
+                                                className="db-submenu-main-btn"
+                                                type="button"
                                                 onClick={() => closeTab({ stopPropagation: () => { } }, activeTabId)}
                                             >
                                                 {toolbarMainButtonContent(<img src="/img/icons/close.svg" className="svg-icon-inline" />, t('Close'))}
@@ -5806,6 +5923,15 @@ function MailSection({
                                             )}
                                         </li>
                                         <li><button className="db-submenu-main-btn" disabled={!activeTabMail} onClick={handleActiveTabReadToggleAction}>{toolbarMainButtonContent(<img src="/img/icons/read.svg" className="svg-icon-inline" />, activeTabReadLabel)}</button></li>
+                                        <li>
+                                            <button
+                                                className="db-submenu-main-btn"
+                                                disabled={!activeTabMail}
+                                                onClick={() => openHeadersPanel(activeTabMail, activeTabContent, activeTab?.mailbox || activeTabMail?.mailbox || selectedFolder || 'INBOX')}
+                                            >
+                                                {toolbarMainButtonContent(<img src="/img/icons/mail.svg" className="svg-icon-inline" />, 'Source')}
+                                            </button>
+                                        </li>
                                     </ul>
                                 )
                             )
@@ -5907,6 +6033,20 @@ function MailSection({
                                 <li>
                                     <button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={() => setBlockSenderModal(actionableMails)}>
                                         {toolbarMainButtonContent(<img src="/img/icons/close.svg" className="svg-icon-inline" />, 'Block Sender')}
+                                    </button>
+                                </li>
+                                <li>
+                                    <button
+                                        className="db-submenu-main-btn"
+                                        disabled={!canOpenActionMail}
+                                        title={openActionTitle}
+                                        onClick={() => {
+                                            const mail = actionableMails[0]
+                                            const content = selectedMail?.id === mail?.id ? mailContent : null
+                                            openHeadersPanel(mail, content, mail?.mailbox || selectedFolder || 'INBOX')
+                                        }}
+                                    >
+                                        {toolbarMainButtonContent(<img src="/img/icons/mail.svg" className="svg-icon-inline" />, 'Source')}
                                     </button>
                                 </li>
                             </ul>
@@ -6085,6 +6225,7 @@ function MailSection({
                                     ><img src="/img/icons/close.svg" className="svg-icon-inline" /></button>
                                 </div>
                             </div>
+                            {renderHeadersPanelFor(activeTabMail, activeTabContent, activeTab?.mailbox || activeTabMail?.mailbox || selectedFolder || 'INBOX')}
                             <div className="db-mail-meta"><strong>From:</strong> {activeTabContent?.from_name ? `${activeTabContent.from_name} <${activeTabContent.from_address}>` : activeTabMail?.address}</div>
                             {!!(activeTabContent?.cc || '').trim() && <div className="db-mail-meta"><strong>CC:</strong> {activeTabContent.cc}</div>}
                             {!!(activeTabContent?.bcc || '').trim() && <div className="db-mail-meta"><strong>BCC:</strong> {activeTabContent.bcc}</div>}
@@ -7219,6 +7360,7 @@ function MailSection({
                                                     </button>
                                                 </div>
 	                                        </div>
+                                            {renderHeadersPanelFor(selectedMail, mailContent, selectedMail?.mailbox || selectedFolder || 'INBOX')}
 	                                        {showThreadReader && selectedThread ? (
 	                                            <div className="db-thread-reader" aria-label="Conversation">
 	                                                {(selectedThread.mails || []).slice().reverse().map((m) => {

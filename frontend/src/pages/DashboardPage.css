@@ -2960,6 +2960,98 @@ body.resizing * {
   cursor: default;
 }
 
+.db-mail-headers-panel {
+  width: min(860px, calc(100vw - 96px));
+  max-height: min(82vh, 920px);
+  border: 1px solid var(--c-border-1);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--c-surface-2) 94%, black 6%);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.db-mail-headers-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 72px 48px 48px;
+  background: rgba(10, 10, 14, 0.48);
+  backdrop-filter: blur(8px) saturate(140%);
+}
+
+.db-mail-headers-panel__bar {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid var(--c-border-1);
+}
+
+.db-mail-headers-panel__title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--c-text-1);
+}
+
+.db-mail-headers-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.db-mail-headers-panel__actions button {
+  min-height: 30px;
+  border: 1px solid var(--c-border-1);
+  border-radius: 7px;
+  background: var(--c-surface-3);
+  color: var(--c-text-1);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.db-mail-headers-panel__actions button:hover:not(:disabled) {
+  background: var(--overlay-hover-1);
+}
+
+.db-mail-headers-panel__actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.db-mail-headers-panel__status {
+  padding: 14px;
+  font-size: 13px;
+  color: var(--c-text-2);
+}
+
+.db-mail-headers-panel__status.error {
+  color: var(--c-danger);
+  font-weight: 700;
+}
+
+.db-mail-headers-panel__text {
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 16px;
+  color: var(--c-text-1);
+  font: 12px/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  white-space: pre;
+  tab-size: 2;
+  background: color-mix(in srgb, var(--c-bg-alt) 76%, transparent);
+}
+
 .db-mail-pager {
   display: flex;
   align-items: center;

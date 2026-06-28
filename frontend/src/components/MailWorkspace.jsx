@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Avatar from './Avatar.jsx'
 import ExternalLinkPrompt from './ExternalLinkPrompt.jsx'
+import MailHeadersPanel from './MailHeadersPanel.jsx'
 import {
   copyTextToClipboard,
   getLinkClickBehavior,
@@ -11,6 +12,12 @@ import {
   setDomainLinkBehavior,
   setLinkClickBehavior,
 } from '../utils/externalLinks.js'
+import {
+  buildHeaderFallback,
+  buildHeadersFileName,
+  fullMessageFromRawBytes,
+  mailHeadersKey,
+} from '../utils/mailHeaders.js'
 
 const FOLDER_MAP = {
   INBOX: { icon: <img src="/img/icons/inbox.svg" className="svg-icon-inline" />, href: '#inbox' },
@@ -43,6 +50,14 @@ export default function MailWorkspace({ accountId, email }) {
   const [mails, setMails] = useState([])
   const [selectedMail, setSelectedMail] = useState(null)
   const [mailContent, setMailContent] = useState(null)
+  const [headersPanel, setHeadersPanel] = useState({
+    open: false,
+    key: '',
+    text: '',
+    loading: false,
+    error: '',
+    copied: false,
+  })
   const [loadingMails, setLoadingMails] = useState(false)
   const [loadingContent, setLoadingContent] = useState(false)
   const iframeRef = useRef(null)
@@ -141,6 +156,7 @@ export default function MailWorkspace({ accountId, email }) {
   const openMail = async (mail) => {
     setSelectedMail(mail)
     setMailContent(null)
+    setHeadersPanel((prev) => ({ ...prev, open: false, copied: false }))
     setLoadingContent(true)
     try {
       const response = await fetch(`/api/mail/${accountId}/content/${mail.id}`)
@@ -154,6 +170,66 @@ export default function MailWorkspace({ accountId, email }) {
       setLoadingContent(false)
     }
   }
+
+  const fetchMailRawBytes = useCallback(async (mail) => {
+    if (!accountId || !mail?.id) return null
+    const mailbox = mail?.mailbox || selectedFolder || 'INBOX'
+    const response = await fetch(`/api/mail/${accountId}/raw/${encodeURIComponent(mail.id)}?mailbox=${encodeURIComponent(mailbox)}`, { cache: 'no-store' })
+    if (!response.ok) return null
+    return new Uint8Array(await response.arrayBuffer())
+  }, [accountId, selectedFolder])
+
+  const openHeadersPanel = useCallback(async () => {
+    if (!selectedMail) return
+    const mailbox = selectedMail?.mailbox || selectedFolder || 'INBOX'
+    const key = mailHeadersKey(selectedMail, mailbox)
+    setHeadersPanel({
+      open: true,
+      key,
+      text: '',
+      loading: true,
+      error: '',
+      copied: false,
+    })
+
+    try {
+      const rawBytes = await fetchMailRawBytes(selectedMail)
+      const rawMessage = fullMessageFromRawBytes(rawBytes)
+      const text = rawMessage || buildHeaderFallback(selectedMail, mailContent, (value) => value || '')
+      setHeadersPanel((prev) => (
+        prev.key === key ? { ...prev, text, loading: false, error: '' } : prev
+      ))
+    } catch (error) {
+      const fallback = buildHeaderFallback(selectedMail, mailContent, (value) => value || '')
+      setHeadersPanel((prev) => (
+        prev.key === key
+          ? { ...prev, text: fallback, loading: false, error: fallback ? '' : (error?.message || 'Message source could not be loaded.') }
+          : prev
+      ))
+    }
+  }, [fetchMailRawBytes, mailContent, selectedFolder, selectedMail])
+
+  const copyHeadersPanelText = useCallback(async () => {
+    if (!headersPanel.text) return
+    await copyTextToClipboard(headersPanel.text)
+    setHeadersPanel((prev) => ({ ...prev, copied: true }))
+    window.setTimeout(() => {
+      setHeadersPanel((prev) => ({ ...prev, copied: false }))
+    }, 1400)
+  }, [headersPanel.text])
+
+  const downloadHeadersPanelText = useCallback(() => {
+    if (!headersPanel.text) return
+    const blob = new Blob([headersPanel.text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = buildHeadersFileName(selectedMail, mailContent)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 250)
+  }, [headersPanel.text, mailContent, selectedMail])
 
   useEffect(() => {
     if (iframeRef.current && mailContent?.html_body) {
@@ -296,9 +372,22 @@ export default function MailWorkspace({ accountId, email }) {
           </div>
         ) : (
           <div className="db-mail-content">
-            <div className="db-mail-content-subject">
-              {mailContent?.subject || selectedMail.subject || '(No Subject)'}
+            <div className="db-mail-content-header">
+              <div className="db-mail-content-subject">
+                {mailContent?.subject || selectedMail.subject || '(No Subject)'}
+              </div>
             </div>
+            {headersPanel.open && headersPanel.key === mailHeadersKey(selectedMail, selectedMail?.mailbox || selectedFolder || 'INBOX') && (
+              <MailHeadersPanel
+                text={headersPanel.text}
+                loading={headersPanel.loading}
+                error={headersPanel.error}
+                copied={headersPanel.copied}
+                onCopy={copyHeadersPanelText}
+                onDownload={downloadHeadersPanelText}
+                onClose={() => setHeadersPanel((prev) => ({ ...prev, open: false, copied: false }))}
+              />
+            )}
             <div className="db-mail-meta">
               <strong>From:</strong>{' '}
               {mailContent?.from_name

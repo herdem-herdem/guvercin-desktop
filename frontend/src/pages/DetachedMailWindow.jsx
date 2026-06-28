@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiUrl } from '../utils/api'
 import { normalizeMailboxResponse } from '../utils/mailboxes'
 import ExternalLinkPrompt from '../components/ExternalLinkPrompt.jsx'
+import MailHeadersPanel from '../components/MailHeadersPanel.jsx'
 import {
   copyTextToClipboard,
   getLinkClickBehavior,
@@ -12,6 +13,12 @@ import {
   setDomainLinkBehavior,
   setLinkClickBehavior,
 } from '../utils/externalLinks.js'
+import {
+  buildHeaderFallback,
+  buildHeadersFileName,
+  fullMessageFromRawBytes,
+  mailHeadersKey,
+} from '../utils/mailHeaders.js'
 import './DashboardPage.css'
 
 function formatBytes(bytes) {
@@ -78,6 +85,14 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
   const [folders, setFolders] = useState([])
   const [isMoveMenuOpen, setIsMoveMenuOpen] = useState(false)
   const [movePopoverStyle, setMovePopoverStyle] = useState(null)
+  const [headersPanel, setHeadersPanel] = useState({
+    open: false,
+    key: '',
+    text: '',
+    loading: false,
+    error: '',
+    copied: false,
+  })
   const submenuScrollRef = useRef(null)
   const moveMenuRef = useRef(null)
   const iframeRef = useRef(null)
@@ -219,7 +234,7 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
         if (!active) return
         setWindowLabel(label)
       } catch {
-        
+        // Try the next raw source.
       }
     }
     detectLabel()
@@ -417,6 +432,84 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
     window.setTimeout(() => URL.revokeObjectURL(url), 250)
   }, [])
 
+  const fetchMailRawBytes = useCallback(async () => {
+    if (!accountId || !mail?.id || isImported) return null
+    const safeMailbox = mailbox || 'INBOX'
+    const candidates = preferOffline
+      ? [
+        `/api/offline/${accountId}/local-raw/${encodeURIComponent(mail.id)}?mailbox=${encodeURIComponent(safeMailbox)}`,
+        `/api/mail/${accountId}/raw/${encodeURIComponent(mail.id)}?mailbox=${encodeURIComponent(safeMailbox)}`,
+      ]
+      : [
+        `/api/mail/${accountId}/raw/${encodeURIComponent(mail.id)}?mailbox=${encodeURIComponent(safeMailbox)}`,
+        `/api/offline/${accountId}/local-raw/${encodeURIComponent(mail.id)}?mailbox=${encodeURIComponent(safeMailbox)}`,
+      ]
+
+    for (const endpoint of candidates) {
+      try {
+        const res = await fetch(apiUrl(endpoint), { cache: 'no-store' })
+        if (!res.ok) continue
+        return new Uint8Array(await res.arrayBuffer())
+      } catch {
+        
+      }
+    }
+    return null
+  }, [accountId, isImported, mail?.id, mailbox, preferOffline])
+
+  const openHeadersPanel = useCallback(async () => {
+    if (!mail) return
+    const safeMailbox = mailbox || 'INBOX'
+    const key = mailHeadersKey(mail, safeMailbox)
+    setHeadersPanel({
+      open: true,
+      key,
+      text: '',
+      loading: true,
+      error: '',
+      copied: false,
+    })
+
+    try {
+      const rawBytes = await fetchMailRawBytes()
+      const rawMessage = fullMessageFromRawBytes(rawBytes)
+      const text = rawMessage || buildHeaderFallback(mail, mailContent, (value) => value || '')
+      setHeadersPanel((prev) => (
+        prev.key === key ? { ...prev, text, loading: false, error: '' } : prev
+      ))
+    } catch (error) {
+      const fallback = buildHeaderFallback(mail, mailContent, (value) => value || '')
+      setHeadersPanel((prev) => (
+        prev.key === key
+          ? { ...prev, text: fallback, loading: false, error: fallback ? '' : (error?.message || 'Message source could not be loaded.') }
+          : prev
+      ))
+    }
+  }, [fetchMailRawBytes, mail, mailContent, mailbox])
+
+  const closeHeadersPanel = useCallback(() => {
+    setHeadersPanel((prev) => ({ ...prev, open: false, copied: false }))
+  }, [])
+
+  const copyHeadersPanelText = useCallback(async () => {
+    if (!headersPanel.text) return
+    await copyTextToClipboard(headersPanel.text)
+    setHeadersPanel((prev) => ({ ...prev, copied: true }))
+    window.setTimeout(() => {
+      setHeadersPanel((prev) => ({ ...prev, copied: false }))
+    }, 1400)
+  }, [headersPanel.text])
+
+  const downloadHeadersPanelText = useCallback(() => {
+    if (!headersPanel.text) return
+    const binary = new TextEncoder().encode(headersPanel.text)
+    triggerBrowserDownload(
+      buildHeadersFileName(mail, mailContent),
+      'text/plain;charset=utf-8',
+      binary,
+    )
+  }, [headersPanel.text, mail, mailContent, triggerBrowserDownload])
+
   const downloadAttachmentFromBase64 = useCallback((attachment) => {
     const base64 = attachment?.data_base64
     if (!base64) return
@@ -536,6 +629,7 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
               <li><button type="button" disabled={isImported} onClick={() => handleMove('Archive')}>📦 Archive</button></li>
               <li><button type="button" disabled={isImported} onClick={handleReply}>↩️ Reply</button></li>
               <li><button type="button" disabled={isImported} onClick={handleForward}>➡️ Forward</button></li>
+              <li><button type="button" onClick={openHeadersPanel}>Headers</button></li>
               <li className="db-submenu-menu-wrap" ref={moveMenuRef}>
                 <button
                   type="button"
@@ -582,6 +676,17 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
               <div className="db-mail-content-header">
                 <div className="db-mail-content-subject">{subject}</div>
               </div>
+              {headersPanel.open && headersPanel.key === mailHeadersKey(mail, mailbox || 'INBOX') && (
+                <MailHeadersPanel
+                  text={headersPanel.text}
+                  loading={headersPanel.loading}
+                  error={headersPanel.error}
+                  copied={headersPanel.copied}
+                  onCopy={copyHeadersPanelText}
+                  onDownload={downloadHeadersPanelText}
+                  onClose={closeHeadersPanel}
+                />
+              )}
               <div className="db-mail-meta"><strong>From:</strong> {fromLine}</div>
               <hr className="db-mail-divider" />
               {mailContent?.html_body ? (

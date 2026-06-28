@@ -180,15 +180,37 @@ impl ImapSession {
         previews
     }
 
-    fn fetch_mail_raw(&mut self, uid: &str) -> Option<Vec<u8>> {
+    fn uid_fetch_raw_body(&mut self, uid: &str, query: &str) -> Option<Vec<u8>> {
         let data = match self {
-            ImapSession::Plain(s) => s.uid_fetch(uid, "BODY.PEEK[]"),
-            ImapSession::Tls(s) => s.uid_fetch(uid, "BODY.PEEK[]"),
+            ImapSession::Plain(s) => s.uid_fetch(uid, query),
+            ImapSession::Tls(s) => s.uid_fetch(uid, query),
         };
-        let fetches = data.ok()?;
+        let fetches = match data {
+            Ok(fetches) => fetches,
+            Err(e) => {
+                warn!("uid_fetch raw body failed (uid={uid}, query={query}): {e}");
+                return None;
+            }
+        };
         let msg = fetches.iter().next()?;
         let raw = msg.body()?;
         Some(raw.to_vec())
+    }
+
+    fn fetch_mail_raw(&mut self, uid: &str) -> Option<Vec<u8>> {
+        for query in [
+            "(UID BODY.PEEK[] RFC822.SIZE)",
+            "(UID RFC822 RFC822.SIZE)",
+            "BODY.PEEK[]",
+            "RFC822",
+        ] {
+            if let Some(raw) = self.uid_fetch_raw_body(uid, query) {
+                if !raw.is_empty() {
+                    return Some(raw);
+                }
+            }
+        }
+        None
     }
 
     fn uid_store_flag(&mut self, uid: &str, flag: &str, add: bool) -> Result<(), String> {
