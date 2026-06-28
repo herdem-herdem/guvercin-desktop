@@ -31,6 +31,20 @@ function getDetachedHint() {
 function App() {
   const location = useLocation()
   const [windowLabel, setWindowLabel] = useState(() => getDetachedHint()?.label || '')
+  const detachedHint = getDetachedHint()
+
+  const isMailWindow = (
+    detachedHint?.kind === 'mail'
+    || windowLabel === 'mail'
+    || windowLabel.startsWith('mail-')
+    || windowLabel.startsWith('import-mail-')
+  )
+
+  const isComposeWindow = (
+    detachedHint?.kind === 'compose'
+    || windowLabel === 'compose'
+    || windowLabel.startsWith('compose-')
+  )
 
   useEffect(() => {
     let active = true
@@ -51,14 +65,7 @@ function App() {
 
   useEffect(() => {
     const path = location.pathname
-    const isDetachedWindow = (
-      windowLabel === 'mail'
-      || windowLabel.startsWith('mail-')
-      || windowLabel === 'compose'
-      || windowLabel.startsWith('compose-')
-      || getDetachedHint()?.kind === 'mail'
-      || getDetachedHint()?.kind === 'compose'
-    )
+    const isDetachedWindow = isMailWindow || isComposeWindow
 
     if (!isDetachedWindow && (path === '/login' || path === '/')) {
       localStorage.removeItem('temp_account_form')
@@ -76,10 +83,8 @@ function App() {
 
     if (
       path.startsWith('/dashboard')
-      || windowLabel === 'mail'
-      || windowLabel.startsWith('mail-')
-      || windowLabel === 'compose'
-      || windowLabel.startsWith('compose-')
+      || isMailWindow
+      || isComposeWindow
       || isDetachedWindow
     ) {
       
@@ -93,22 +98,13 @@ function App() {
     }
 
     document.body.style.fontFamily = fontToUse
-  }, [location, windowLabel])
+  }, [location, windowLabel, isMailWindow, isComposeWindow])
 
-  const isDetachedWindow = (
-    windowLabel === 'mail'
-    || windowLabel.startsWith('mail-')
-    || windowLabel === 'compose'
-    || windowLabel.startsWith('compose-')
-    || getDetachedHint()?.kind === 'mail'
-    || getDetachedHint()?.kind === 'compose'
-  )
-
-  if (windowLabel === 'mail' || windowLabel.startsWith('mail-')) {
+  if (isMailWindow) {
     return <DetachedMailWindow initialLabel={windowLabel} />
   }
 
-  if (windowLabel === 'compose' || windowLabel.startsWith('compose-')) {
+  if (isComposeWindow) {
     return <DetachedComposeWindow initialLabel={windowLabel} />
   }
 

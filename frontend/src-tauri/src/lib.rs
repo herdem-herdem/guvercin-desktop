@@ -217,14 +217,14 @@ async fn open_mail_window(
   Ok(())
 }
 
-/// Called by the new window on startup to fetch (and consume) its mail data.
+/// Called by the new window on startup to fetch its mail data.
 #[tauri::command]
 fn get_mail_window_data(
   label: String,
   store: State<'_, MailWindowStore>,
 ) -> Option<String> {
-  let mut map = store.0.lock().unwrap();
-  map.remove(&label)
+  let map = store.0.lock().unwrap();
+  map.get(&label).cloned()
 }
 
 #[tauri::command]
@@ -234,6 +234,12 @@ fn close_mail_window(handle: tauri::AppHandle, label: String) -> Result<(), Stri
   } else {
     label
   };
+
+  {
+    let store = handle.state::<MailWindowStore>();
+    let mut map = store.0.lock().unwrap();
+    map.remove(&label);
+  }
 
   if let Some(window) = handle.get_webview_window(&label) {
     let _ = window.close();

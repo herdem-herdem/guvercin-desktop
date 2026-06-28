@@ -3321,6 +3321,7 @@ function MailSection({
     const hasAnyActionMail = actionableMails.length > 0
     const hasMultipleActionMails = actionableMails.length > 1
     const canForwardActionMail = actionableMails.length === 1
+    const canOpenActionMail = actionableMails.length === 1
     const allActionMailsSeen = hasAnyActionMail && actionableMails.every((mail) => mail.seen === true)
     const homeReplyLabel = hasMultipleActionMails ? 'Bulk Reply' : 'Reply'
     const readToggleLabel = allActionMailsSeen ? 'Unread' : 'Read'
@@ -3351,6 +3352,7 @@ function MailSection({
     )
     const selectionRequiredTitle = hasAnyActionMail ? undefined : 'Select a mail first'
     const forwardSelectionTitle = canForwardActionMail ? undefined : (hasAnyActionMail ? 'Select a single mail to forward' : selectionRequiredTitle)
+    const openActionTitle = canOpenActionMail ? undefined : (hasAnyActionMail ? 'Select a single mail to open' : selectionRequiredTitle)
 
     const formatMailDateLong = (dateValue) => {
         if (!dateValue) return ''
@@ -4597,6 +4599,21 @@ function MailSection({
         setImportPreview(null)
     }, [nextTabId, setActiveTabId, setInlineComposeSession, setMailContent, setSelectedMail, setTabContents, setTabs])
 
+    const handleOpenActionMailInTab = async () => {
+        if (!canOpenActionMail) return
+        const mail = actionableMails[0]
+        const existingContent = selectedMail?.id === mail?.id ? mailContent : null
+        await openMailInTab(mail, existingContent)
+        closeActionMenus()
+    }
+
+    const handleOpenActionMailInWindow = async () => {
+        if (!canOpenActionMail) return
+        const mail = actionableMails[0]
+        await detachMailToWindowFromList({ stopPropagation: () => {} }, mail)
+        closeActionMenus()
+    }
+
     const closeTab = (e, tabId) => {
         e.stopPropagation()
         pendingTabLoadsRef.current.delete(tabId)
@@ -5810,6 +5827,26 @@ function MailSection({
                                         onClick={handleForwardAction}
                                     >
                                         {toolbarMainButtonContent(<img src="/img/icons/forward.svg" className="svg-icon-inline" />, 'Forward')}
+                                    </button>
+                                </li>
+                                <li>
+                                    <button
+                                        className="db-submenu-main-btn"
+                                        disabled={!canOpenActionMail}
+                                        title={openActionTitle}
+                                        onClick={handleOpenActionMailInTab}
+                                    >
+                                        {toolbarMainButtonContent(<img src="/img/icons/open-in-new-tab.svg" className="svg-icon-inline" />, 'Open in Tab')}
+                                    </button>
+                                </li>
+                                <li>
+                                    <button
+                                        className="db-submenu-main-btn"
+                                        disabled={!canOpenActionMail}
+                                        title={openActionTitle}
+                                        onClick={handleOpenActionMailInWindow}
+                                    >
+                                        {toolbarMainButtonContent(<img src="/img/icons/open-in-new-window.svg" className="svg-icon-inline" />, 'Open in Window')}
                                     </button>
                                 </li>
                                 <li className="db-submenu-menu-wrap" ref={moveMenuRef}>
@@ -7165,6 +7202,22 @@ function MailSection({
 	                                                    ? (selectedThread.subject_display || '(No Subject)')
 	                                                    : (mailContent?.subject || selectedMail.subject || '(No Subject)')}
 	                                            </div>
+                                                <div className="db-mail-content-actions">
+                                                    <button
+                                                        className="db-mail-action-btn"
+                                                        onClick={() => openMailInTab(selectedMail, mailContent)}
+                                                        title={t('Move to tab')}
+                                                    >
+                                                        <img src="/img/icons/open-in-new-tab.svg" className="svg-icon-inline" />
+                                                    </button>
+                                                    <button
+                                                        className="db-mail-action-btn"
+                                                        onClick={detachMailToWindow}
+                                                        title={t('Move to window')}
+                                                    >
+                                                        <img src="/img/icons/open-in-new-window.svg" className="svg-icon-inline" />
+                                                    </button>
+                                                </div>
 	                                        </div>
 	                                        {showThreadReader && selectedThread ? (
 	                                            <div className="db-thread-reader" aria-label="Conversation">
