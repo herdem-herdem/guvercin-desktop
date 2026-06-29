@@ -11,11 +11,12 @@ use native_tls::TlsConnector;
 use tracing::{error, info, warn};
 
 use crate::mail_models::{
-    AdvancedSearchRequest, AttachmentInfo, MailContent, MailPreview, MailSearchPreview,
-    ReadStatus, SearchScope, merge_mailbox_label_into_preview,
+    merge_mailbox_label_into_preview, AdvancedSearchRequest, AttachmentInfo, MailContent,
+    MailPreview, MailSearchPreview, ReadStatus, SearchScope,
 };
 use mailparse::{
-    addrparse_header, parse_headers, parse_mail, DispositionType, MailAddr, MailHeaderMap, ParsedMail,
+    addrparse_header, parse_headers, parse_mail, DispositionType, MailAddr, MailHeaderMap,
+    ParsedMail,
 };
 
 fn parse_threading_headers(headers: &[mailparse::MailHeader<'_>]) -> (String, String, String) {
@@ -38,7 +39,6 @@ fn parse_threading_headers(headers: &[mailparse::MailHeader<'_>]) -> (String, St
 }
 
 pub struct ImapState {
-    
     sessions: Mutex<HashMap<i64, ImapSession>>,
 }
 
@@ -140,13 +140,19 @@ impl ImapSession {
                     Err(_) => Vec::new(),
                 };
 
-                let subject = parsed_headers.get_first_value("Subject").unwrap_or_default();
+                let subject = parsed_headers
+                    .get_first_value("Subject")
+                    .unwrap_or_default();
                 let from_raw = parsed_headers.get_first_value("From").unwrap_or_default();
                 let recipient_to = parsed_headers.get_first_value("To").unwrap_or_default();
                 let date = parsed_headers.get_first_value("Date").unwrap_or_default();
-                let (message_id, in_reply_to, references) = parse_threading_headers(&parsed_headers);
-                let content_type =
-                    parse_content_type(&parsed_headers.get_first_value("Content-Type").unwrap_or_default());
+                let (message_id, in_reply_to, references) =
+                    parse_threading_headers(&parsed_headers);
+                let content_type = parse_content_type(
+                    &parsed_headers
+                        .get_first_value("Content-Type")
+                        .unwrap_or_default(),
+                );
                 let importance = parse_importance_from_headers(&parsed_headers);
                 let category = parse_category_from_headers(&parsed_headers);
 
@@ -253,7 +259,6 @@ impl ImapSession {
     }
 
     fn uid_move_to(&mut self, uid: &str, folder: &str) -> Result<(), String> {
-        
         let copied = match self {
             ImapSession::Plain(s) => s.uid_copy(uid, folder),
             ImapSession::Tls(s) => s.uid_copy(uid, folder),
@@ -313,7 +318,12 @@ impl ImapSession {
         }
     }
 
-    fn fetch_headers_by_uid_set(&mut self, uid_set: &str, account_id: i64, mailbox: &str) -> Vec<MailPreview> {
+    fn fetch_headers_by_uid_set(
+        &mut self,
+        uid_set: &str,
+        account_id: i64,
+        mailbox: &str,
+    ) -> Vec<MailPreview> {
         let data = match self {
             ImapSession::Plain(s) => s.uid_fetch(
                 uid_set,
@@ -372,13 +382,19 @@ impl ImapSession {
                     Err(_) => Vec::new(),
                 };
 
-                let subject = parsed_headers.get_first_value("Subject").unwrap_or_default();
+                let subject = parsed_headers
+                    .get_first_value("Subject")
+                    .unwrap_or_default();
                 let from_raw = parsed_headers.get_first_value("From").unwrap_or_default();
                 let recipient_to = parsed_headers.get_first_value("To").unwrap_or_default();
                 let date = parsed_headers.get_first_value("Date").unwrap_or_default();
-                let (message_id, in_reply_to, references) = parse_threading_headers(&parsed_headers);
-                let content_type =
-                    parse_content_type(&parsed_headers.get_first_value("Content-Type").unwrap_or_default());
+                let (message_id, in_reply_to, references) =
+                    parse_threading_headers(&parsed_headers);
+                let content_type = parse_content_type(
+                    &parsed_headers
+                        .get_first_value("Content-Type")
+                        .unwrap_or_default(),
+                );
                 let importance = parse_importance_from_headers(&parsed_headers);
                 let category = parse_category_from_headers(&parsed_headers);
 
@@ -461,7 +477,6 @@ pub fn connect_and_login(
             ImapSession::Tls(s)
         }
         _ => {
-            
             let tcp = TcpStream::connect((imap_host, imap_port)).map_err(|e| format!("{e}"))?;
 
             tcp.set_read_timeout(Some(std::time::Duration::from_secs(30)))
@@ -595,8 +610,16 @@ pub fn build_imap_advanced_query(req: &AdvancedSearchRequest) -> String {
     let from = req.from.as_deref().map(str::trim).filter(|v| !v.is_empty());
     let to = req.to.as_deref().map(str::trim).filter(|v| !v.is_empty());
     let cc = req.cc.as_deref().map(str::trim).filter(|v| !v.is_empty());
-    let subject = req.subject.as_deref().map(str::trim).filter(|v| !v.is_empty());
-    let keywords = req.keywords.as_deref().map(str::trim).filter(|v| !v.is_empty());
+    let subject = req
+        .subject
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let keywords = req
+        .keywords
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
 
     if let Some(value) = from {
         parts.push(format!("FROM {}", quote_imap_string(value)));
@@ -810,10 +833,14 @@ pub fn fetch_headers_for_uids(
         Some(s) => s,
         None => return vec![],
     };
-    
+
     let _ = session.select_mailbox(mailbox);
-    
-    let uid_set: String = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+
+    let uid_set: String = uids
+        .iter()
+        .map(|u| u.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     session.fetch_headers_by_uid_set(&uid_set, account_id, mailbox)
 }
 
@@ -942,7 +969,7 @@ pub fn set_label(
         let label_folders = ["Labels", "Labels", "[Labels]"];
         let mut target_folder = None;
         let mailboxes = session.list_mailboxes();
-        
+
         for root in label_folders {
             let candidate = format!("{}/{}", root, label);
             if mailboxes.iter().any(|m| m.eq_ignore_ascii_case(&candidate)) {
@@ -952,14 +979,12 @@ pub fn set_label(
         }
 
         if let Some(folder) = target_folder {
-            
             let _ = match session {
                 ImapSession::Plain(s) => s.uid_copy(uid, folder),
                 ImapSession::Tls(s) => s.uid_copy(uid, folder),
             };
         }
     } else {
-        
     }
 
     Ok(())
@@ -1265,7 +1290,7 @@ fn fallback_parse_rfc822(uid: String, raw: &[u8]) -> MailContent {
         cc,
         bcc,
         date,
-        html_body: String::new(), 
+        html_body: String::new(),
         plain_body: body_part.chars().take(10000).collect(),
         attachments: vec![],
     }
@@ -1377,7 +1402,6 @@ fn parse_labels(headers: &str) -> Vec<String> {
 }
 
 fn split_from(from: &str) -> (String, String) {
-    
     if let (Some(lt), Some(gt)) = (from.find('<'), from.find('>')) {
         let name = from[..lt].trim().trim_matches('"').to_string();
         let address = from[lt + 1..gt].trim().to_string();

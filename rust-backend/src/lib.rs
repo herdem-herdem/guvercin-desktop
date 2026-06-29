@@ -3,10 +3,10 @@ mod avatar_routes;
 mod crypto;
 mod db;
 pub mod error;
-mod keystore;
 mod i18n;
 mod imap_client;
 mod imap_session;
+mod keystore;
 mod mail_models;
 mod mail_routes;
 mod models;
@@ -35,8 +35,7 @@ use crate::mail_routes::MailAppState;
 use std::path::PathBuf;
 
 fn init_tracing() {
-    let default_filter =
-        "info,axum=info,tower_http=info,rust_backend=debug,sqlx=warn,hyper=warn";
+    let default_filter = "info,axum=info,tower_http=info,rust_backend=debug,sqlx=warn,hyper=warn";
     let env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
 
@@ -80,9 +79,18 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
         )
         .route("/api/auth/probe", post(routes::probe_server))
         .route("/api/account/finalize", post(routes::finalize_account))
-        .route("/api/account/:account_id/theme", post(routes::set_account_theme))
-        .route("/api/account/:account_id/font", post(routes::set_account_font))
-        .route("/api/account/:account_id/layout", post(routes::set_account_layout))
+        .route(
+            "/api/account/:account_id/theme",
+            post(routes::set_account_theme),
+        )
+        .route(
+            "/api/account/:account_id/font",
+            post(routes::set_account_font),
+        )
+        .route(
+            "/api/account/:account_id/layout",
+            post(routes::set_account_layout),
+        )
         .route(
             "/api/account/:account_id/mailbox-count-display",
             post(routes::set_mailbox_count_display),
@@ -91,18 +99,28 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
             "/api/account/:account_id/conversation-view",
             post(routes::set_conversation_view),
         )
-        .route("/api/account/:account_id/mailbox-order", post(routes::set_mailbox_order))
-        .route("/api/account/:account_id/label-order", post(routes::set_label_order))
+        .route(
+            "/api/account/:account_id/mailbox-order",
+            post(routes::set_mailbox_order),
+        )
+        .route(
+            "/api/account/:account_id/label-order",
+            post(routes::set_label_order),
+        )
         .route(
             "/api/account/:account_id/settings",
             get(routes::get_account_settings).patch(routes::update_account_settings),
         )
         .route("/api/account/:account_id", delete(routes::delete_account))
         .route("/api/avatar/:account_id", get(avatar_routes::get_avatar))
-        .route("/api/security/settings",
-            get(security_routes::get_security_settings)
-                .put(security_routes::put_security_settings))
-        .route("/api/security/verify-password", post(security_routes::verify_password))
+        .route(
+            "/api/security/settings",
+            get(security_routes::get_security_settings).put(security_routes::put_security_settings),
+        )
+        .route(
+            "/api/security/verify-password",
+            post(security_routes::verify_password),
+        )
         .route("/api/security/unlock", post(security_routes::unlock))
         .with_state(db_state);
 
@@ -128,11 +146,13 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
             "/api/mail/:account_id/content/:uid",
             get(mail_routes::get_mail_content),
         )
-        .route("/api/mail/:account_id/raw/:uid", get(mail_routes::get_mail_raw))
+        .route(
+            "/api/mail/:account_id/raw/:uid",
+            get(mail_routes::get_mail_raw),
+        )
         .route(
             "/api/mail/:account_id/import-preview",
-            post(mail_routes::post_import_preview)
-                .layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+            post(mail_routes::post_import_preview).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route(
             "/api/mail/:account_id/proxy-image",

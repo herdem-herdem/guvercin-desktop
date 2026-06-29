@@ -58,9 +58,7 @@ async fn save_settings(state: &AppState, settings: &SecuritySettings) -> std::io
 
 /* ─── Handlers ───────────────────────────────────────────────────── */
 
-pub async fn get_security_settings(
-    State(state): State<Arc<AppState>>,
-) -> Json<SecuritySettings> {
+pub async fn get_security_settings(State(state): State<Arc<AppState>>) -> Json<SecuritySettings> {
     Json(load_settings(&state).await)
 }
 
@@ -136,13 +134,15 @@ pub async fn verify_password(
     if matches {
         (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
     } else {
-        (StatusCode::OK, Json(json!({ "ok": false, "error": "wrong_password" }))).into_response()
+        (
+            StatusCode::OK,
+            Json(json!({ "ok": false, "error": "wrong_password" })),
+        )
+            .into_response()
     }
 }
 
-pub async fn unlock(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn unlock(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match state.ensure_ready(false).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
         Err(e) => (

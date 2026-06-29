@@ -14,7 +14,6 @@ pub async fn authorize(
     verify_ssl: bool,
     ssl_mode: &str,
 ) -> (bool, String) {
-    
     let server = server.to_string();
     let email = email.to_string();
     let password = password.to_string();
@@ -84,7 +83,8 @@ fn probe_single_server(server: &str, port: u16, ssl_mode: &str) -> Result<(), St
             Ok(())
         }
         "STARTTLS" => {
-            let _ = imap::connect_starttls((server, port), server, &tls).map_err(|e| format!("{e}"))?;
+            let _ =
+                imap::connect_starttls((server, port), server, &tls).map_err(|e| format!("{e}"))?;
             Ok(())
         }
         _ => {
@@ -138,27 +138,27 @@ fn inner_authorize(
         "STARTTLS" => match imap::connect_starttls((server, port), server, &tls) {
             Ok(client) => perform_auth(client, email, password),
             Err(e) => {
-                warn!("IMAP STARTTLS connect failed for {}:{} - {}", server, port, e);
+                warn!(
+                    "IMAP STARTTLS connect failed for {}:{} - {}",
+                    server, port, e
+                );
                 (false, tr(&format!("Unexpected error: {e}")))
             }
         },
-        _ => {
-            
-            match std::net::TcpStream::connect((server, port)) {
-                Ok(stream) => {
-                    let mut client = imap::Client::new(stream);
-                    if let Err(e) = client.read_greeting() {
-                        warn!("IMAP greeting failed for {}:{} - {}", server, port, e);
-                        return (false, tr(&format!("Unexpected error: {e}")));
-                    }
-                    perform_auth(client, email, password)
+        _ => match std::net::TcpStream::connect((server, port)) {
+            Ok(stream) => {
+                let mut client = imap::Client::new(stream);
+                if let Err(e) = client.read_greeting() {
+                    warn!("IMAP greeting failed for {}:{} - {}", server, port, e);
+                    return (false, tr(&format!("Unexpected error: {e}")));
                 }
-                Err(e) => {
-                    warn!("TCP connect to IMAP failed for {}:{} - {}", server, port, e);
-                    (false, tr(&format!("Unexpected error: {e}")))
-                },
+                perform_auth(client, email, password)
             }
-        }
+            Err(e) => {
+                warn!("TCP connect to IMAP failed for {}:{} - {}", server, port, e);
+                (false, tr(&format!("Unexpected error: {e}")))
+            }
+        },
     }
 }
 
@@ -211,22 +211,29 @@ fn inner_preview_mailboxes(
 
     match ssl_mode.to_uppercase().as_str() {
         "SSL" => {
-            let client = imap::connect((server, port), server, &tls)
-                .map_err(|e| { warn!("IMAP SSL probe failed for {}:{} - {}", server, port, e); format!("Unexpected error: {e}") })?;
+            let client = imap::connect((server, port), server, &tls).map_err(|e| {
+                warn!("IMAP SSL probe failed for {}:{} - {}", server, port, e);
+                format!("Unexpected error: {e}")
+            })?;
             perform_preview(client, email, password)
         }
         "STARTTLS" => {
-            let client = imap::connect_starttls((server, port), server, &tls)
-                .map_err(|e| { warn!("IMAP STARTTLS probe failed for {}:{} - {}", server, port, e); format!("Unexpected error: {e}") })?;
+            let client = imap::connect_starttls((server, port), server, &tls).map_err(|e| {
+                warn!("IMAP STARTTLS probe failed for {}:{} - {}", server, port, e);
+                format!("Unexpected error: {e}")
+            })?;
             perform_preview(client, email, password)
         }
         _ => {
-            let stream = std::net::TcpStream::connect((server, port))
-                .map_err(|e| { warn!("TCP probe to IMAP failed for {}:{} - {}", server, port, e); format!("Unexpected error: {e}") })?;
+            let stream = std::net::TcpStream::connect((server, port)).map_err(|e| {
+                warn!("TCP probe to IMAP failed for {}:{} - {}", server, port, e);
+                format!("Unexpected error: {e}")
+            })?;
             let mut client = imap::Client::new(stream);
-            client
-                .read_greeting()
-                .map_err(|e| { warn!("IMAP greeting probe failed for {}:{} - {}", server, port, e); format!("Unexpected error: {e}") })?;
+            client.read_greeting().map_err(|e| {
+                warn!("IMAP greeting probe failed for {}:{} - {}", server, port, e);
+                format!("Unexpected error: {e}")
+            })?;
             perform_preview(client, email, password)
         }
     }

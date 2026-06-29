@@ -35,9 +35,7 @@ pub struct MailboxListResponse {
 
 pub fn is_label_mailbox(mailbox: &str) -> bool {
     let lower = mailbox.trim().to_lowercase();
-    lower.starts_with("labels/")
-        || lower.starts_with("labels/")
-        || lower.starts_with("[labels]/")
+    lower.starts_with("labels/") || lower.starts_with("labels/") || lower.starts_with("[labels]/")
 }
 
 pub fn label_key_from_mailbox(mailbox: &str) -> Option<String> {
@@ -214,8 +212,8 @@ pub struct AdvancedSearchResponse {
 #[cfg(test)]
 mod tests {
     use super::{
-        MailPreview, MailboxListResponse, is_label_mailbox, label_key_from_mailbox,
-        merge_mailbox_label_into_preview, split_mailboxes,
+        is_label_mailbox, label_key_from_mailbox, merge_mailbox_label_into_preview,
+        split_mailboxes, MailPreview, MailboxListResponse,
     };
 
     #[test]
@@ -247,7 +245,10 @@ mod tests {
 
     #[test]
     fn label_key_is_extracted_from_label_mailbox() {
-        assert_eq!(label_key_from_mailbox("Labels/Work/Urgent").as_deref(), Some("Work/Urgent"));
+        assert_eq!(
+            label_key_from_mailbox("Labels/Work/Urgent").as_deref(),
+            Some("Work/Urgent")
+        );
     }
 
     #[test]

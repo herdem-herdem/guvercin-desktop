@@ -13,12 +13,12 @@ use crate::{
     i18n::tr,
     imap_client,
     models::{
-        AccountSettingsResponse, AccountSummary, AccountsResponse, FinalizeAccountBody,
-        FinalizeAccountData, FinalizeSuccessResponse, MailboxPreviewRequest,
+        AccountSettingsResponse, AccountSummary, AccountsResponse, DeleteAccountBody,
+        FinalizeAccountBody, FinalizeAccountData, FinalizeSuccessResponse, MailboxPreviewRequest,
         MailboxPreviewResponse, ServerProbeRequest, ServerProbeResponse, SetConversationViewBody,
         SetFontBody, SetLayoutBody, SetMailboxCountDisplayBody, SetOrderBody, SetThemeBody,
         SetupAccountForm, SetupFailureFormData, SetupFailureResponse, SetupSuccessResponse,
-        UpdateAccountSettingsBody, DeleteAccountBody,
+        UpdateAccountSettingsBody,
     },
     offline_routes,
 };
@@ -121,14 +121,28 @@ pub async fn setup_account(
         (StatusCode::OK, Json(body)).into_response()
     } else {
         // Log a concise warning for failed setup attempts (avoid logging passwords)
-        tracing::warn!("Setup failed for email={} imap_server={} imap_port={} -- {}", &email, form.imap_server, imap_port, message);
+        tracing::warn!(
+            "Setup failed for email={} imap_server={} imap_port={} -- {}",
+            &email,
+            form.imap_server,
+            imap_port,
+            message
+        );
 
         // Provide a more helpful user-facing message for common IMAP failures
         let mut display_message = message.clone();
         let lower = message.to_lowercase();
-        if lower.contains("invalid credentials") || lower.contains("authenticationfailed") || lower.contains("login failed") || lower.contains("no such user") {
+        if lower.contains("invalid credentials")
+            || lower.contains("authenticationfailed")
+            || lower.contains("login failed")
+            || lower.contains("no such user")
+        {
             display_message = format!("{} {}", message, tr("Your mail provider may require an app-specific password or OAuth2. Check the provider's account/security settings."));
-        } else if lower.contains("connect") || lower.contains("gai") || lower.contains("timed out") || lower.contains("connection refused") {
+        } else if lower.contains("connect")
+            || lower.contains("gai")
+            || lower.contains("timed out")
+            || lower.contains("connection refused")
+        {
             display_message = format!("{} {}", message, tr("Could not reach the IMAP server. Verify host, port, and SSL mode in advanced settings."));
         } else if lower.contains("certificate") || lower.contains("name mismatch") {
             display_message = format!("{} {}", message, tr("TLS verification failed for the IMAP server. You can try disabling SSL verification for testing (not recommended)."));
@@ -241,11 +255,7 @@ pub async fn probe_server(Json(payload): Json<ServerProbeRequest>) -> impl IntoR
     )
     .await
     {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(ServerProbeResponse { status: "ok" }),
-        )
-            .into_response(),
+        Ok(_) => (StatusCode::OK, Json(ServerProbeResponse { status: "ok" })).into_response(),
         Err(err) => (
             StatusCode::BAD_GATEWAY,
             Json(json!({
@@ -378,7 +388,10 @@ pub async fn set_account_theme(
         .execute(&state.ensure_ready(false).await?.general_pool)
         .await?;
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "success" }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "success" })),
+    ))
 }
 
 pub async fn set_account_font(
@@ -397,7 +410,10 @@ pub async fn set_account_font(
         .execute(&state.ensure_ready(false).await?.general_pool)
         .await?;
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "success" }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "success" })),
+    ))
 }
 
 pub async fn set_account_layout(
@@ -416,7 +432,10 @@ pub async fn set_account_layout(
         .execute(&state.ensure_ready(false).await?.general_pool)
         .await?;
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "success" }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "success" })),
+    ))
 }
 
 pub async fn set_mailbox_count_display(
@@ -438,7 +457,10 @@ pub async fn set_mailbox_count_display(
         .execute(&state.ensure_ready(false).await?.general_pool)
         .await?;
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "success" }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "success" })),
+    ))
 }
 
 pub async fn set_conversation_view(
@@ -476,16 +498,17 @@ pub async fn set_conversation_view(
         return Err(AppError::BadRequest(tr("Invalid sort order")));
     }
 
-    sqlx::query(
-        "UPDATE accounts SET conversation_view = ?, thread_order = ? WHERE account_id = ?",
-    )
-    .bind(&mode)
-    .bind(&thread_order)
-    .bind(account_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE accounts SET conversation_view = ?, thread_order = ? WHERE account_id = ?")
+        .bind(&mode)
+        .bind(&thread_order)
+        .bind(account_id)
+        .execute(pool)
+        .await?;
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "success" }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "success" })),
+    ))
 }
 
 pub async fn set_mailbox_order(
@@ -494,14 +517,17 @@ pub async fn set_mailbox_order(
     Json(payload): Json<SetOrderBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let order_json = serde_json::to_string(&payload.order).unwrap_or_else(|_| "[]".to_string());
-    
+
     sqlx::query("UPDATE accounts SET mailbox_order = ? WHERE account_id = ?")
         .bind(order_json)
         .bind(account_id)
         .execute(&state.ensure_ready(false).await?.general_pool)
         .await?;
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "success" }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "success" })),
+    ))
 }
 
 pub async fn set_label_order(
@@ -510,14 +536,17 @@ pub async fn set_label_order(
     Json(payload): Json<SetOrderBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let order_json = serde_json::to_string(&payload.order).unwrap_or_else(|_| "[]".to_string());
-    
+
     sqlx::query("UPDATE accounts SET label_order = ? WHERE account_id = ?")
         .bind(order_json)
         .bind(account_id)
         .execute(&state.ensure_ready(false).await?.general_pool)
         .await?;
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "success" }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "success" })),
+    ))
 }
 
 pub async fn get_account_settings(
@@ -576,26 +605,45 @@ pub async fn update_account_settings(
     let row = row.ok_or_else(|| AppError::BadRequest(tr("Account not found")))?;
     use sqlx::Row;
 
-    let imap_server = payload.imap_server
-        .as_deref().map(str::trim).map(str::to_string)
+    let imap_server = payload
+        .imap_server
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_string)
         .or_else(|| row.try_get::<Option<String>, _>("imap_host").ok().flatten())
         .unwrap_or_default();
-    let imap_port: i64 = payload.imap_port
+    let imap_port: i64 = payload
+        .imap_port
         .or_else(|| row.try_get::<Option<i64>, _>("imap_port").ok().flatten())
         .unwrap_or(143);
-    let smtp_server = payload.smtp_server
-        .as_deref().map(str::trim).map(str::to_string)
+    let smtp_server = payload
+        .smtp_server
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_string)
         .or_else(|| row.try_get::<Option<String>, _>("smtp_host").ok().flatten())
         .unwrap_or_default();
-    let smtp_port: Option<i64> = payload.smtp_port
+    let smtp_port: Option<i64> = payload
+        .smtp_port
         .or_else(|| row.try_get::<Option<i64>, _>("smtp_port").ok().flatten());
-    let ssl_mode = payload.ssl_mode
-        .as_deref().map(str::trim).map(str::to_string)
+    let ssl_mode = payload
+        .ssl_mode
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_string)
         .or_else(|| row.try_get::<Option<String>, _>("ssl_mode").ok().flatten())
         .unwrap_or_else(|| "STARTTLS".to_string());
-    let password = payload.password
-        .as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
-        .or_else(|| row.try_get::<Option<String>, _>("auth_token").ok().flatten());
+    let password = payload
+        .password
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            row.try_get::<Option<String>, _>("auth_token")
+                .ok()
+                .flatten()
+        });
 
     sqlx::query(
         r#"
@@ -615,7 +663,10 @@ pub async fn update_account_settings(
     .execute(pool)
     .await?;
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "success" }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "success" })),
+    ))
 }
 
 pub async fn delete_account(
@@ -631,13 +682,13 @@ pub async fn delete_account(
         .await?;
 
     let row = row.ok_or_else(|| AppError::BadRequest(tr("Account not found")))?;
-    
+
     use sqlx::Row;
     let stored_pw: Option<String> = row.try_get("auth_token").ok().flatten();
 
     let password = payload.password.as_deref().unwrap_or("");
     let stored_pw_str = stored_pw.as_deref().unwrap_or("");
-    
+
     if stored_pw_str != password {
         return Err(AppError::BadRequest(tr("Incorrect password")));
     }
@@ -653,11 +704,14 @@ pub async fn delete_account(
     let db_shm = state.databases_dir.join(format!("{account_id}.db-shm"));
     let db_wal = state.databases_dir.join(format!("{account_id}.db-wal"));
     let db_enc = state.databases_dir.join(format!("{account_id}.db.enc"));
-    
+
     let _ = tokio::fs::remove_file(db_path).await;
     let _ = tokio::fs::remove_file(db_shm).await;
     let _ = tokio::fs::remove_file(db_wal).await;
     let _ = tokio::fs::remove_file(db_enc).await;
 
-    Ok((StatusCode::OK, Json(serde_json::json!({ "status": "success", "message": "Account deleted." }))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "success", "message": "Account deleted." })),
+    ))
 }

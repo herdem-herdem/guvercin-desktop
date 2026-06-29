@@ -1,3 +1,4 @@
+use axum::http::HeaderValue;
 use axum::{
     body::{Body, Bytes},
     extract::{Json, Path, Query, State},
@@ -7,21 +8,20 @@ use axum::{
     },
     response::{IntoResponse, Response},
 };
-use chrono::{DateTime, Utc};
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use chrono::{DateTime, Utc};
 use mailparse::MailHeaderMap;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::Row;
 use std::sync::Arc;
-use axum::http::HeaderValue;
 
 use crate::{
     imap_session::{self, ImapState},
     mail_models::{
-        AdvancedSearchRequest, AdvancedSearchResponse, ConnectImapBody, MailListResponse,
-        MailboxListResponse, MailContent, AttachmentInfo, merge_mailbox_label_into_preview,
+        merge_mailbox_label_into_preview, AdvancedSearchRequest, AdvancedSearchResponse,
+        AttachmentInfo, ConnectImapBody, MailContent, MailListResponse, MailboxListResponse,
     },
 };
 
@@ -194,7 +194,11 @@ pub async fn post_import_preview(
         "isImported": true,
     });
 
-    (StatusCode::OK, Json(json!({ "mail": mail, "content": content }))).into_response()
+    (
+        StatusCode::OK,
+        Json(json!({ "mail": mail, "content": content })),
+    )
+        .into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -281,12 +285,21 @@ pub async fn get_proxy_image(
 
     let builder = Response::builder()
         .status(StatusCode::OK)
-        .header(CONTENT_TYPE, HeaderValue::from_str(&content_type).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")))
+        .header(
+            CONTENT_TYPE,
+            HeaderValue::from_str(&content_type)
+                .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        )
         .header("Cache-Control", "public, max-age=86400");
 
     builder
         .body(Body::from(bytes))
-        .unwrap_or_else(|_| Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::empty()).unwrap())
+        .unwrap_or_else(|_| {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap()
+        })
         .into_response()
 }
 
@@ -466,7 +479,8 @@ pub async fn get_mail_list(
             let date_ms: i64 = DateTime::parse_from_rfc2822(&mail.date)
                 .map(|dt| dt.timestamp_millis())
                 .unwrap_or(0);
-            let labels_json = serde_json::to_string(&mail.labels).unwrap_or_else(|_| "[]".to_string());
+            let labels_json =
+                serde_json::to_string(&mail.labels).unwrap_or_else(|_| "[]".to_string());
             let _ = sqlx::query(
                 r#"
                 INSERT INTO local_mail_cache (
@@ -529,7 +543,8 @@ pub async fn search_advanced(
     Path(account_id): Path<i64>,
     Json(body): Json<AdvancedSearchRequest>,
 ) -> impl IntoResponse {
-    if matches!(body.scope, crate::mail_models::SearchScope::Mailboxes) && body.mailboxes.is_empty() {
+    if matches!(body.scope, crate::mail_models::SearchScope::Mailboxes) && body.mailboxes.is_empty()
+    {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "mailboxes must be provided when scope=mailboxes" })),
@@ -551,11 +566,7 @@ pub async fn search_advanced(
             mails,
         })
         .into_response(),
-        Err(error) => (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({ "error": error })),
-        )
-            .into_response(),
+        Err(error) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": error }))).into_response(),
     }
 }
 
@@ -582,11 +593,7 @@ pub async fn create_mailbox(
 
     match result {
         Ok(()) => (StatusCode::OK, Json(json!({ "status": "created" }))).into_response(),
-        Err(error) => (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({ "error": error })),
-        )
-            .into_response(),
+        Err(error) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": error }))).into_response(),
     }
 }
 
@@ -609,7 +616,10 @@ pub async fn get_mail_content(
     if let Some(raw_bytes) = raw {
         let is_drafts_mailbox = {
             let lower = q.mailbox.trim().to_ascii_lowercase();
-            lower == "drafts" || lower.ends_with("/drafts") || lower.ends_with(".drafts") || lower.contains("drafts")
+            lower == "drafts"
+                || lower.ends_with("/drafts")
+                || lower.ends_with(".drafts")
+                || lower.contains("drafts")
         };
         let content = if is_drafts_mailbox {
             imap_session::parse_mail_content_with_attachment_data(uid_for_response, &raw_bytes)
@@ -673,8 +683,7 @@ pub async fn get_mail_raw(
     if let Some(raw_bytes) = raw {
         let escaped = file_name.replace('"', "\\\"");
         let encoded = percent_encode_filename(&file_name);
-        let disposition =
-            format!("attachment; filename=\"{escaped}\"; filename*=UTF-8''{encoded}");
+        let disposition = format!("attachment; filename=\"{escaped}\"; filename*=UTF-8''{encoded}");
         return Response::builder()
             .status(StatusCode::OK)
             .header(CONTENT_TYPE, "application/vnd.ms-outlook")
@@ -832,7 +841,9 @@ mod tests {
             "reply@example.com"
         );
         assert_eq!(
-            seed.get("message_id").and_then(|v| v.as_str()).unwrap_or(""),
+            seed.get("message_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
             "<m1>"
         );
     }

@@ -212,6 +212,14 @@ async fn open_mail_window(
       target_os = "openbsd"
     ))]
     disable_native_webview_context_menus(&window);
+    #[cfg(not(any(
+      target_os = "linux",
+      target_os = "dragonfly",
+      target_os = "freebsd",
+      target_os = "netbsd",
+      target_os = "openbsd"
+    )))]
+    let _ = window;
   })?;
 
   Ok(())
@@ -296,6 +304,14 @@ async fn open_compose_window(
       target_os = "openbsd"
     ))]
     disable_native_webview_context_menus(&window);
+    #[cfg(not(any(
+      target_os = "linux",
+      target_os = "dragonfly",
+      target_os = "freebsd",
+      target_os = "netbsd",
+      target_os = "openbsd"
+    )))]
+    let _ = window;
   })?;
 
   Ok(())

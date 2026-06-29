@@ -1,5 +1,5 @@
-use thiserror::Error;
 use once_cell::sync::Lazy;
+use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 
 #[derive(Debug, Error)]
@@ -32,25 +32,21 @@ pub async fn store_master_key(prompt: &str, key: &[u8]) -> Result<(), KeyStoreEr
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::{ENTRY_NAME, KeyStoreError, SERVICE_NAME};
-    use core_foundation::base::{TCFType, CFType};
+    use super::{KeyStoreError, ENTRY_NAME, SERVICE_NAME};
+    use core_foundation::base::{CFType, TCFType};
     use core_foundation::boolean::CFBoolean;
     use core_foundation::data::CFData;
     use core_foundation::dictionary::CFDictionary;
-    use core_foundation::string::CFString;
     use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
     use core_foundation_sys::base::CFTypeRef;
-    use security_framework_sys::base::{
-        errSecDuplicateItem, errSecItemNotFound, errSecSuccess,
-    };
+    use security_framework_sys::access_control::kSecAttrAccessibleWhenUnlockedThisDeviceOnly;
+    use security_framework_sys::base::{errSecDuplicateItem, errSecItemNotFound, errSecSuccess};
     use security_framework_sys::item::{
         kSecAttrAccount, kSecAttrService, kSecClass, kSecClassGenericPassword, kSecMatchLimit,
         kSecReturnData, kSecValueData,
     };
-    use security_framework_sys::access_control::kSecAttrAccessibleWhenUnlockedThisDeviceOnly;
-    use security_framework_sys::keychain_item::{
-        SecItemAdd, SecItemCopyMatching, SecItemUpdate,
-    };
+    use security_framework_sys::keychain_item::{SecItemAdd, SecItemCopyMatching, SecItemUpdate};
 
     // kSecAttrAccessible is the dictionary key for the accessibility attribute.
     // It lives in Security.framework but is not always re-exported by security-framework-sys,
@@ -124,17 +120,16 @@ mod platform {
         let accessible_value =
             unsafe { cf_string_const(kSecAttrAccessibleWhenUnlockedThisDeviceOnly) };
 
-        let (key_class, class_generic, key_service, key_account, key_value, key_accessible) =
-            unsafe {
-                (
-                    cf_string_const(kSecClass),
-                    cf_string_const(kSecClassGenericPassword),
-                    cf_string_const(kSecAttrService),
-                    cf_string_const(kSecAttrAccount),
-                    cf_string_const(kSecValueData),
-                    cf_string_const(kSecAttrAccessible),
-                )
-            };
+        let (key_class, class_generic, key_service, key_account, key_value, key_accessible) = unsafe {
+            (
+                cf_string_const(kSecClass),
+                cf_string_const(kSecClassGenericPassword),
+                cf_string_const(kSecAttrService),
+                cf_string_const(kSecAttrAccount),
+                cf_string_const(kSecValueData),
+                cf_string_const(kSecAttrAccessible),
+            )
+        };
 
         let add = CFDictionary::from_CFType_pairs(&[
             (key_class.clone(), class_generic.clone()),
@@ -172,15 +167,14 @@ mod platform {
 
 #[cfg(target_os = "windows")]
 mod platform {
-    use super::{ENTRY_NAME, KeyStoreError, SERVICE_NAME};
+    use super::{KeyStoreError, ENTRY_NAME, SERVICE_NAME};
     use std::ffi::OsStr;
     use std::iter::once;
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{GetLastError, ERROR_NOT_FOUND, HLOCAL};
     use windows::Win32::Security::Credentials::{
-        CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE,
-        CRED_TYPE_GENERIC,
+        CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
     };
     use windows::Win32::Security::Cryptography::{
         CryptProtectData, CryptUnprotectData, CRYPTPROTECT_PROMPTSTRUCT,
@@ -224,8 +218,8 @@ mod platform {
             return Err(KeyStoreError::Denied);
         }
 
-        let data = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }
-            .to_vec();
+        let data =
+            unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
         unsafe { LocalFree(HLOCAL(output.pbData as isize)) };
         Ok(data)
     }
@@ -262,8 +256,8 @@ mod platform {
             return Err(KeyStoreError::Denied);
         }
 
-        let data = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }
-            .to_vec();
+        let data =
+            unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
         unsafe { LocalFree(HLOCAL(output.pbData as isize)) };
         Ok(data)
     }
@@ -335,7 +329,7 @@ mod platform {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    use super::{ENTRY_NAME, KeyStoreError, SERVICE_NAME};
+    use super::{KeyStoreError, ENTRY_NAME, SERVICE_NAME};
     use secret_service::{EncryptionType, SecretService};
 
     pub async fn load_master_key(_prompt: &str) -> Result<Vec<u8>, KeyStoreError> {

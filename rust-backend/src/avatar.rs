@@ -1,4 +1,3 @@
-
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -48,10 +47,11 @@ pub async fn query_cache(pool: &SqlitePool, hash: &str) -> sqlx::Result<Option<C
     .await?;
 
     match row {
-        Some((fp, ct, not_found, _)) if !not_found && !fp.is_empty() => {
-            Ok(Some(CachedAvatar { file_path: fp, content_type: ct }))
-        }
-        
+        Some((fp, ct, not_found, _)) if !not_found && !fp.is_empty() => Ok(Some(CachedAvatar {
+            file_path: fp,
+            content_type: ct,
+        })),
+
         Some((_, _, true, _)) => Ok(None),
         _ => Ok(None),
     }
@@ -143,7 +143,7 @@ pub async fn cache_not_found(pool: &SqlitePool, email: &str, hash: &str) {
     .await;
 }
 
-type AvatarResult = Option<(Vec<u8>, String)>; 
+type AvatarResult = Option<(Vec<u8>, String)>;
 
 async fn try_contact(user_pool: &SqlitePool, email: &str) -> AvatarResult {
     let row: Option<(Vec<u8>,)> = sqlx::query_as(
@@ -164,9 +164,8 @@ async fn try_contact(user_pool: &SqlitePool, email: &str) -> AvatarResult {
 }
 
 async fn try_bimi(client: &reqwest::Client, domain: &str) -> AvatarResult {
-    
     let host = format!("default._bimi.{domain}");
-    
+
     let doh_url = format!(
         "https://dns.google/resolve?name={}&type=TXT",
         urlencoding_simple(&host)
@@ -179,7 +178,7 @@ async fn try_bimi(client: &reqwest::Client, domain: &str) -> AvatarResult {
     let answers = json.get("Answer")?.as_array()?;
     for answer in answers {
         let data = answer.get("data")?.as_str().unwrap_or("");
-        
+
         if data.contains("v=BIMI1") {
             if let Some(logo_url) = extract_bimi_logo(data) {
                 if let Ok(img_resp) = client.get(&logo_url).send().await {
@@ -225,7 +224,7 @@ async fn try_google_profile(client: &reqwest::Client, email: &str) -> AvatarResu
         return None;
     }
     let final_url = resp.url().to_string();
-    
+
     if !final_url.contains("/photo/") && !final_url.contains("s96-c") {
         return None;
     }
@@ -303,7 +302,7 @@ async fn try_google_favicon(client: &reqwest::Client, domain: &str) -> AvatarRes
         .unwrap_or("image/png")
         .to_string();
     let bytes = resp.bytes().await.ok()?;
-    
+
     if bytes.len() < 200 {
         return None;
     }
@@ -345,7 +344,6 @@ async fn try_og_image(client: &reqwest::Client, domain: &str) -> AvatarResult {
             }
         }
         urls
-        
     };
 
     for img_url in candidate_urls {
@@ -388,11 +386,7 @@ async fn try_favicon_ico(client: &reqwest::Client, domain: &str) -> AvatarResult
     Some((bytes.to_vec(), ct))
 }
 
-pub async fn run_waterfall(
-    email: String,
-    account_id: i64,
-    state: Arc<AppState>,
-) {
+pub async fn run_waterfall(email: String, account_id: i64, state: Arc<AppState>) {
     let hash = email_hash(&email);
     let Some(inner) = state.ready_or_none().await else {
         return;
@@ -422,68 +416,42 @@ pub async fn run_waterfall(
     if let Ok(user_pool) = crate::db::get_user_db_pool(&state, account_id).await {
         if let Some((data, ct)) = try_contact(&user_pool, &email).await {
             let _ = cache_avatar(
-                pool,
-                &email,
-                &hash,
-                &data,
-                &ct,
-                "contact",
-                &cache_dir,
-                crypto_opt,
+                pool, &email, &hash, &data, &ct, "contact", &cache_dir, crypto_opt,
             )
-                    .await;
+            .await;
             return;
         }
     }
 
     if let Some((data, ct)) = try_bimi(&client, &domain).await {
-        let _ = cache_avatar(pool, &email, &hash, &data, &ct, "bimi", &cache_dir, crypto_opt)
-            .await;
+        let _ = cache_avatar(
+            pool, &email, &hash, &data, &ct, "bimi", &cache_dir, crypto_opt,
+        )
+        .await;
         return;
     }
 
     if let Some((data, ct)) = try_google_profile(&client, &email).await {
         let _ = cache_avatar(
-            pool,
-            &email,
-            &hash,
-            &data,
-            &ct,
-            "google",
-            &cache_dir,
-            crypto_opt,
+            pool, &email, &hash, &data, &ct, "google", &cache_dir, crypto_opt,
         )
-                .await;
+        .await;
         return;
     }
 
     if let Some((data, ct)) = try_gravatar(&client, &email).await {
         let _ = cache_avatar(
-            pool,
-            &email,
-            &hash,
-            &data,
-            &ct,
-            "gravatar",
-            &cache_dir,
-            crypto_opt,
+            pool, &email, &hash, &data, &ct, "gravatar", &cache_dir, crypto_opt,
         )
-                .await;
+        .await;
         return;
     }
 
     if let Some((data, ct)) = try_clearbit(&client, &domain).await {
         let _ = cache_avatar(
-            pool,
-            &email,
-            &hash,
-            &data,
-            &ct,
-            "clearbit",
-            &cache_dir,
-            crypto_opt,
+            pool, &email, &hash, &data, &ct, "clearbit", &cache_dir, crypto_opt,
         )
-                .await;
+        .await;
         return;
     }
 
@@ -504,14 +472,7 @@ pub async fn run_waterfall(
 
     if let Some((data, ct)) = try_og_image(&client, &domain).await {
         let _ = cache_avatar(
-            pool,
-            &email,
-            &hash,
-            &data,
-            &ct,
-            "og_image",
-            &cache_dir,
-            crypto_opt,
+            pool, &email, &hash, &data, &ct, "og_image", &cache_dir, crypto_opt,
         )
         .await;
         return;
@@ -519,16 +480,9 @@ pub async fn run_waterfall(
 
     if let Some((data, ct)) = try_favicon_ico(&client, &domain).await {
         let _ = cache_avatar(
-            pool,
-            &email,
-            &hash,
-            &data,
-            &ct,
-            "favicon",
-            &cache_dir,
-            crypto_opt,
+            pool, &email, &hash, &data, &ct, "favicon", &cache_dir, crypto_opt,
         )
-                .await;
+        .await;
         return;
     }
 
@@ -552,8 +506,9 @@ fn urlencoding_simple(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
-            | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
@@ -566,7 +521,6 @@ fn resolve_url(href: &str, base: &str) -> String {
     } else if href.starts_with("//") {
         format!("https:{href}")
     } else if href.starts_with('/') {
-        
         let base_trimmed = base.trim_end_matches('/');
         format!("{base_trimmed}{href}")
     } else {

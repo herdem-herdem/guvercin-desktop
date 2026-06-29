@@ -1,4 +1,4 @@
-
+use crate::{avatar, db::AppState};
 use axum::{
     body::Body,
     extract::{Path, Query, State},
@@ -7,7 +7,6 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
-use crate::{avatar, db::AppState};
 
 #[derive(Deserialize)]
 pub struct AvatarQuery {

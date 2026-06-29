@@ -80,7 +80,12 @@ fn build_html_part(html_body: &str) -> SinglePart {
 fn decode_attachment_bytes(attachment: &OutgoingAttachment) -> Result<Vec<u8>, String> {
     BASE64_STANDARD
         .decode(attachment.data_base64.trim())
-        .map_err(|e| format!("Attachment '{}' is not valid base64: {}", attachment.filename, e))
+        .map_err(|e| {
+            format!(
+                "Attachment '{}' is not valid base64: {}",
+                attachment.filename, e
+            )
+        })
 }
 
 fn build_attachment_part(
@@ -96,7 +101,10 @@ fn build_attachment_part(
     };
 
     if !force_regular_attachment
-        && matches!(attachment.disposition, OutgoingAttachmentDisposition::Inline)
+        && matches!(
+            attachment.disposition,
+            OutgoingAttachmentDisposition::Inline
+        )
     {
         let content_id = attachment
             .content_id
@@ -104,7 +112,10 @@ fn build_attachment_part(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| format!("Inline attachment '{}' is missing content_id", filename))?;
-        Ok(Attachment::new_inline_with_name(content_id.to_string(), filename).body(body, content_type))
+        Ok(
+            Attachment::new_inline_with_name(content_id.to_string(), filename)
+                .body(body, content_type),
+        )
     } else {
         Ok(Attachment::new(filename).body(body, content_type))
     }
@@ -133,7 +144,10 @@ fn build_message_body(
     let mut inline_attachments = Vec::new();
     let mut regular_attachments = Vec::new();
     for attachment in attachments {
-        if matches!(attachment.disposition, OutgoingAttachmentDisposition::Inline) {
+        if matches!(
+            attachment.disposition,
+            OutgoingAttachmentDisposition::Inline
+        ) {
             inline_attachments.push(attachment);
         } else {
             regular_attachments.push(attachment);
@@ -178,7 +192,10 @@ fn build_message(
     raw_headers: &[(String, String)],
 ) -> Result<Message, String> {
     let mut builder = Message::builder()
-        .from(from.parse().map_err(|e| format!("Invalid 'from' address: {}", e))?)
+        .from(
+            from.parse()
+                .map_err(|e| format!("Invalid 'from' address: {}", e))?,
+        )
         .subject(subject);
 
     for addr_str in to {
@@ -202,7 +219,10 @@ fn build_message(
     for (name, value) in raw_headers {
         let header_name = header::HeaderName::new_from_ascii(name.trim().to_string())
             .map_err(|e| format!("Invalid header name '{}': {}", name, e))?;
-        builder = builder.raw_header(header::HeaderValue::new(header_name, value.trim().to_string()));
+        builder = builder.raw_header(header::HeaderValue::new(
+            header_name,
+            value.trim().to_string(),
+        ));
     }
 
     match build_message_body(format, plain_body, html_body, attachments)? {
@@ -361,7 +381,9 @@ pub async fn send_mail_with_headers(
                     .build()
             } else {
                 AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(smtp_host)
-                    .map_err(|e| format!("Failed to create STARTTLS relay for {}: {}", smtp_host, e))?
+                    .map_err(|e| {
+                        format!("Failed to create STARTTLS relay for {}: {}", smtp_host, e)
+                    })?
                     .port(smtp_port)
                     .credentials(credentials)
                     .build()
@@ -393,7 +415,9 @@ pub async fn send_mail_with_headers(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_message, OutgoingAttachment, OutgoingAttachmentDisposition, OutgoingMailFormat};
+    use super::{
+        build_message, OutgoingAttachment, OutgoingAttachmentDisposition, OutgoingMailFormat,
+    };
 
     fn sample_attachment(disposition: OutgoingAttachmentDisposition) -> OutgoingAttachment {
         OutgoingAttachment {
@@ -469,8 +493,12 @@ mod tests {
 
         let bytes = message.formatted();
         let formatted = String::from_utf8_lossy(&bytes);
-        let related_index = formatted.find("multipart/related").expect("related multipart");
-        let html_index = formatted.find("Content-Type: text/html").expect("html part");
+        let related_index = formatted
+            .find("multipart/related")
+            .expect("related multipart");
+        let html_index = formatted
+            .find("Content-Type: text/html")
+            .expect("html part");
         let cid_index = formatted.find("Content-ID: <cid-123>").expect("cid part");
         assert!(formatted.contains("multipart/related"));
         assert!(formatted.contains("Content-ID: <cid-123>"));

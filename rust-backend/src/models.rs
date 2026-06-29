@@ -322,17 +322,16 @@ pub struct TransferSnapshot {
 
 #[derive(Serialize, Clone)]
 pub struct TransferProgress {
-    
     pub direction: String,
-    
+
     pub resource: String,
     pub mailbox: Option<String>,
     pub total: Option<i64>,
     pub done: i64,
     pub remaining: Option<i64>,
-    
+
     pub detail: Option<String>,
-    
+
     pub updated_at_ms: i64,
 }
 

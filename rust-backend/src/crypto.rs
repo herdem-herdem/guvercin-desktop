@@ -110,83 +110,6 @@ pub async fn decrypt_file_to_bytes(key: &[u8; 32], path: &Path) -> Result<Vec<u8
     Ok(out)
 }
 
-pub async fn encrypt_file_to_file(key: &[u8; 32], src: &Path, dst: &Path) -> Result<()> {
-    let mut input = tokio::fs::File::open(src).await?;
-    let mut output = tokio::fs::File::create(dst).await?;
-    encrypt_reader_to_writer(key, &mut input, &mut output).await?;
-    Ok(())
-}
-
-pub async fn decrypt_file_to_file(key: &[u8; 32], src: &Path, dst: &Path) -> Result<()> {
-    let mut input = tokio::fs::File::open(src).await?;
-    let mut output = tokio::fs::File::create(dst).await?;
-    decrypt_reader_to_writer(key, &mut input, &mut output).await?;
-    Ok(())
-}
-
-pub async fn encrypt_reader_to_writer<R, W>(
-    key: &[u8; 32],
-    reader: &mut R,
-    writer: &mut W,
-) -> Result<()>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    write_encrypted_header(writer, DEFAULT_CHUNK_SIZE).await?;
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
-
-    let base_nonce = random_file_nonce();
-    writer.write_all(&base_nonce).await?;
-
-    let mut counter: u64 = 0;
-    let mut buf = vec![0u8; DEFAULT_CHUNK_SIZE];
-    loop {
-        let n = reader.read(&mut buf).await?;
-        if n == 0 {
-            break;
-        }
-        let nonce = stream_nonce(&base_nonce, counter);
-        let ciphertext = cipher
-            .encrypt(XNonce::from_slice(&nonce), &buf[..n])
-            .map_err(|e| anyhow!("failed to encrypt file chunk: {:?}", e))?;
-        write_frame(writer, &ciphertext).await?;
-        counter = counter.saturating_add(1);
-    }
-
-    writer.flush().await?;
-    Ok(())
-}
-
-pub async fn decrypt_reader_to_writer<R, W>(
-    key: &[u8; 32],
-    reader: &mut R,
-    writer: &mut W,
-) -> Result<()>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    let (chunk_size, base_nonce) = read_encrypted_header(reader).await?;
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
-
-    let mut counter: u64 = 0;
-    while let Some(ciphertext) = read_frame(reader).await? {
-        if ciphertext.len() > chunk_size + FILE_TAG_LEN {
-            bail!("encrypted frame size exceeds configured chunk size");
-        }
-        let nonce = stream_nonce(&base_nonce, counter);
-        let plaintext = cipher
-            .decrypt(XNonce::from_slice(&nonce), ciphertext.as_ref())
-            .map_err(|e| anyhow!("failed to decrypt file chunk: {:?}", e))?;
-        writer.write_all(&plaintext).await?;
-        counter = counter.saturating_add(1);
-    }
-
-    writer.flush().await?;
-    Ok(())
-}
-
 fn random_file_nonce() -> [u8; FILE_NONCE_LEN] {
     let mut out = [0u8; FILE_NONCE_LEN];
     rand::thread_rng().fill_bytes(&mut out);
@@ -261,10 +184,7 @@ async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<Vec<u
     Ok(Some(frame))
 }
 
-async fn read_exact_or_eof<R: AsyncRead + Unpin>(
-    reader: &mut R,
-    buf: &mut [u8],
-) -> Result<bool> {
+async fn read_exact_or_eof<R: AsyncRead + Unpin>(reader: &mut R, buf: &mut [u8]) -> Result<bool> {
     let mut read = 0;
     while read < buf.len() {
         let n = reader.read(&mut buf[read..]).await?;
