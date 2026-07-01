@@ -12,7 +12,7 @@ const LANGUAGES = [
     { code: 'tk', flag: 'tm', native: 'Türkmençe', english: 'Turkmen', alt: 'Turkmenistan' },
     { code: 'uz', flag: 'uz', native: "O'zbek", english: 'Uzbek', alt: 'Uzbekistan' },
     { code: 'sq-xk', flag: 'xk', native: 'Shqip', english: 'Albanian – Kosovo', alt: 'Kosovo' },
-    { code: 'af', flag: 'ad', native: 'Català', english: 'Catalan', alt: 'Andorra' },
+    { code: 'ca', flag: 'ad', native: 'Català', english: 'Catalan', alt: 'Andorra' },
     { code: 'ar', flag: 'ae', native: 'العربية', english: 'Arabic', alt: 'UAE' },
     { code: 'ps', flag: 'af', native: 'پښتو', english: 'Pashto', alt: 'Afghanistan' },
     { code: 'sq', flag: 'al', native: 'Shqip', english: 'Albanian', alt: 'Albania' },

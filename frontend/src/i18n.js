@@ -1,16 +1,18 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import translationEN from './locales/en/translation.json';
-import translationTR from './locales/tr/translation.json';
+// Use Vite's glob import to load all translation JSON files dynamically
+const modules = import.meta.glob('./locales/**/*.json', { eager: true });
+const resources = {};
 
-const resources = {
-    en: {
-        translation: translationEN
-    },
-    tr: {
-        translation: translationTR
+for (const path in modules) {
+    const parts = path.split('/');
+    if (parts.length >= 3) {
+        const lang = parts[2];
+        resources[lang] = {
+            translation: modules[path].default || modules[path]
+        };
     }
-};
+}
 
 function getInitialLanguage() {
     const saved = localStorage.getItem('temp_language') || localStorage.getItem('language');
