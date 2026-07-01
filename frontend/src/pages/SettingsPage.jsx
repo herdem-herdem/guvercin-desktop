@@ -131,6 +131,7 @@ const CATEGORIES = [
         label: 'Security',
         children: [
             { id: 'encryption', label: 'Encryption', parentId: 'security' },
+            { id: 'app_lock', label: 'App Lock', parentId: 'security' },
         ],
     },
 ]
@@ -147,7 +148,8 @@ const PANEL_SEARCH_INDEX = {
     smtp: 'smtp outgoing mail server port password ssl starttls',
     links: 'links link click open browser copy clipboard external url mailto tel',
     blocked: 'blocked senders block delete spam archive email addresses automatically moved',
-    encryption: 'encryption encrypt stored data password login policy keyring account decrypt sqlite',
+    encryption: 'encryption encrypt stored data sqlite decrypt plaintext AES-256 SQLCipher XChaCha20',
+    app_lock: 'app lock password prompt login policy keyring account credentials launch security',
 }
 
 function SearchResultsPage({ filteredCategories, searchQuery, onSelectPanel, onSelectCategory, accountId, onClose, onRefreshAccount, appearance }) {
@@ -2009,7 +2011,6 @@ function EncryptionSettings({ searchQuery = '' }) {
     const bEnc = baselineEncRef.current
     const encDirty = !loading && bEnc != null && (
         dataEncrypted !== bEnc.dataEncrypted
-        || loginPolicy !== bEnc.loginPolicy
     )
     useSettingsDraft('encryption', 'Encryption', {
         isDirty: encDirty,
@@ -2018,34 +2019,8 @@ function EncryptionSettings({ searchQuery = '' }) {
             const base = baselineEncRef.current
             if (!base) return
             setDataEncrypted(base.dataEncrypted)
-            setLoginPolicy(base.loginPolicy)
         },
     })
-
-    const LOGIN_POLICIES = [
-        {
-            value: 'none',
-            label: 'Do not ask for a password',
-            sub: 'The app opens without any password prompt',
-        },
-        {
-            value: 'pc_only',
-            label: 'PC password only',
-            sub: 'Your system keyring protects the encryption key — no extra prompt',
-            recommended: true,
-        },
-        {
-            value: 'both',
-            label: 'PC password + account password',
-            sub: 'Two-step: system keyring unlock + your email account password',
-        },
-        {
-            value: 'account_only',
-            label: 'Account password only',
-            sub: 'Only your email account password is required on launch',
-            unrecommended: true,
-        },
-    ]
 
     if (loading) {
         return (
@@ -2060,7 +2035,7 @@ function EncryptionSettings({ searchQuery = '' }) {
         <div className="sp-section">
             <h2 className="sp-section__title"><HighlightMatch text="Encryption" query={searchQuery} /></h2>
             <p className="sp-section__desc">
-                <HighlightMatch text="Control how your data is protected at rest and which credential is required on launch." query={searchQuery} />
+                <HighlightMatch text="Control how your data is protected at rest." query={searchQuery} />
             </p>
 
             {/* Disable-encryption confirmation dialog */}
@@ -2123,11 +2098,139 @@ function EncryptionSettings({ searchQuery = '' }) {
                 </button>
             </div>
 
-            <div className="sp-section-divider" style={{ margin: '0 0 20px' }} />
+            {saveMsg && (
+                <div className={`sp-form-message sp-form-message--${saveMsg.type}`} style={{ marginTop: '16px' }}>
+                    {saveMsg.text}
+                </div>
+            )}
 
-            {/* Login password policy */}
+            <button
+                type="button"
+                className="sp-save-btn"
+                style={{ marginTop: '20px' }}
+                onClick={handleSave}
+                disabled={saving || !encDirty}
+            >
+                {saving ? 'Saving…' : 'Save Settings'}
+            </button>
+        </div>
+    )
+}
+
+/* ─── App lock settings panel ───────────────────────────────────── */
+function AppLockSettings({ searchQuery = '' }) {
+    const [dataEncrypted, setDataEncrypted] = useState(true)
+    const [loginPolicy, setLoginPolicy] = useState('pc_only')
+    const [loading, setLoading] = useState(true)
+    const [saving, setSaving] = useState(false)
+    const [saveMsg, setSaveMsg] = useState(null)
+    const baselineEncRef = useRef(null)
+    const encStateRef = useRef({ dataEncrypted: true, loginPolicy: 'pc_only' })
+    useLayoutEffect(() => {
+        encStateRef.current = { dataEncrypted, loginPolicy }
+    }, [dataEncrypted, loginPolicy])
+
+    // Load from backend on mount
+    useEffect(() => {
+        let active = true
+        fetch(apiUrl('/api/security/settings'))
+            .then((r) => r.ok ? r.json() : Promise.reject(r))
+            .then((data) => {
+                if (!active) return
+                const enc = data.data_encrypted !== false
+                const pol = data.login_policy || 'pc_only'
+                baselineEncRef.current = { dataEncrypted: enc, loginPolicy: pol }
+                setDataEncrypted(enc)
+                setLoginPolicy(pol)
+                setLoading(false)
+            })
+            .catch(() => { if (active) setLoading(false) })
+        return () => { active = false }
+    }, [])
+
+    const persistAppLockSettings = useCallback(async () => {
+        setSaving(true)
+        setSaveMsg(null)
+        try {
+            const { dataEncrypted: enc, loginPolicy: pol } = encStateRef.current
+            const res = await fetch(apiUrl('/api/security/settings'), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data_encrypted: enc, login_policy: pol }),
+            })
+            if (!res.ok) throw new Error('Save failed')
+            baselineEncRef.current = { dataEncrypted: enc, loginPolicy: pol }
+            setSaveMsg({
+                type: 'success',
+                text: '✅ Settings saved.',
+            })
+        } catch {
+            setSaveMsg({ type: 'error', text: '❌ Failed to save settings.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [])
+
+    const handleSave = () => {
+        void persistAppLockSettings().catch(() => {})
+    }
+
+    const bEnc = baselineEncRef.current
+    const lockDirty = !loading && bEnc != null && (
+        loginPolicy !== bEnc.loginPolicy
+    )
+    useSettingsDraft('app_lock', 'App Lock', {
+        isDirty: lockDirty,
+        save: persistAppLockSettings,
+        revert: () => {
+            const base = baselineEncRef.current
+            if (!base) return
+            setLoginPolicy(base.loginPolicy)
+        },
+    })
+
+    const LOGIN_POLICIES = [
+        {
+            value: 'none',
+            label: 'Do not ask for a password',
+            sub: 'The app opens without any password prompt',
+        },
+        {
+            value: 'pc_only',
+            label: 'PC password only',
+            sub: 'Your system keyring protects the encryption key — no extra prompt',
+            recommended: true,
+        },
+        {
+            value: 'both',
+            label: 'PC password + account password',
+            sub: 'Two-step: system keyring unlock + your email account password',
+        },
+        {
+            value: 'account_only',
+            label: 'Account password only',
+            sub: 'Only your email account password is required on launch',
+        },
+    ]
+
+    if (loading) {
+        return (
+            <div className="sp-section">
+                <h2 className="sp-section__title"><HighlightMatch text="App Lock" query={searchQuery} /></h2>
+                <div className="sp-loading-row"><div className="sp-spinner" /><span>Loading…</span></div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="App Lock" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Control which credential is required on launch." query={searchQuery} />
+            </p>
+
             <div className="sp-enc-policy">
-                <h3 className="sp-off-section__title"><HighlightMatch text="Password prompt on launch" query={searchQuery} /></h3>
                 <div className="sp-enc-policy-list">
                     {LOGIN_POLICIES.map(({ value, label, sub, recommended, unrecommended }) => (
                         <label
@@ -2165,13 +2268,14 @@ function EncryptionSettings({ searchQuery = '' }) {
                 className="sp-save-btn"
                 style={{ marginTop: '20px' }}
                 onClick={handleSave}
-                disabled={saving || !encDirty}
+                disabled={saving || !lockDirty}
             >
                 {saving ? 'Saving…' : 'Save Settings'}
             </button>
         </div>
     )
 }
+
 
 /* ─── Blocked Senders setting panel ─────────────────────────────────── */
 function blockedRuleToActionKey(rule) {
@@ -2959,6 +3063,7 @@ function renderSinglePanel(id, accountId, onClose, onRefreshAccount, searchQuery
         case 'links': return <LinksSettings key="links" searchQuery={q} />
         case 'blocked': return <BlockedSendersSettings accountId={accountId} key={`blocked-${accountId}`} searchQuery={q} />
         case 'encryption': return <EncryptionSettings searchQuery={q} />
+        case 'app_lock': return <AppLockSettings searchQuery={q} />
         default: return null
     }
 }
