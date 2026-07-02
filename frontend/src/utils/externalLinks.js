@@ -219,6 +219,31 @@ export function sanitizeMailHtml(html) {
       anchor.removeAttribute('target')
     })
 
+    // ── Neutralize image loading issues ────────────────────────────
+    // Sandboxed iframes often have issues with loading="lazy", causing images
+    // to flash and disappear or fail to load depending on viewport intersection.
+    doc.querySelectorAll('img').forEach((img) => {
+      try {
+        // If an <img> only provides a srcset (no src), move the first candidate
+        // to src so the image remains visible after we strip srcset.
+        const currentSrc = img.getAttribute('src')
+        const srcset = img.getAttribute('srcset')
+        if ((!currentSrc || String(currentSrc).trim() === '') && srcset) {
+          const first = String(srcset).split(',')[0].trim().split(/\s+/)[0]
+          if (first && !/^\s*javascript\s*:/i.test(first)) {
+            img.setAttribute('src', first)
+          }
+        }
+      } catch {
+        // ignore any DOM quirks
+      }
+      img.removeAttribute('loading')
+      // Some emails use srcset which can cause similar issues in WebKit/WebView2
+      // if the source resolutions fail or are blocked. We'll strip it to ensure
+      // the fallback src is always used reliably.
+      img.removeAttribute('srcset')
+    })
+
     // Serialize back — use the full document including <html>/<head>/<body>
     // so styles/meta are preserved
     return doc.documentElement.outerHTML

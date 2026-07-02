@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { apiUrl } from '../utils/api'
+import { apiUrl, getApiBaseUrl } from '../utils/api'
 import {
     normalizeMailboxResponse,
     dedupeStringsCaseInsensitive,
@@ -1937,7 +1937,17 @@ const DashboardPage = () => {
                 )
                 if (!res.ok) return null
                 const data = await res.json().catch(() => null)
-                return data?.html_body || null
+                let html = data?.html_body || null
+                if (html) {
+                    try {
+                        const base = getApiBaseUrl() || apiUrl('/')
+                        // Replace hardcoded backend base returned by server (dev default)
+                        html = html.replace(/http:\/\/127\.0\.0\.1:5000/g, base)
+                    } catch {
+                        // ignore replacement errors
+                    }
+                }
+                return html
             } catch {
                 return null
             }
