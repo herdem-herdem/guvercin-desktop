@@ -307,7 +307,7 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
           setMailContent(parsed?.mailContent || null)
         }
       } catch {
-        
+        // ignore errors while fetching window data
       }
     }
     fetchData()
@@ -343,7 +343,7 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
               message = body.error
             }
           } catch {
-            
+            // ignore JSON parse errors from error bodies
           }
           throw new Error(message)
         }
@@ -397,7 +397,7 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
           setFolders(normalized.allMailboxes)
         }
       } catch {
-        
+        // ignore folder loading errors
       }
     }
     loadFolders()
@@ -503,7 +503,7 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
         if (!res.ok) continue
         return new Uint8Array(await res.arrayBuffer())
       } catch {
-        
+      // ignore transient network errors while attempting to fetch raw bytes
       }
     }
     return null
@@ -627,6 +627,35 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
     })
   }
 
+  const handleReplyAll = () => {
+    if (isImported) return
+    const to = (mail?.recipient_to || '').trim()
+    const cc = (mail?.recipient_cc || '').trim()
+    const sender = mailContent?.from_address || mail?.address || ''
+    const toParam = to || sender
+    openMailto({
+      to: toParam,
+      cc: cc,
+      subject: `Re: ${subject}`,
+      body: buildQuotedBody(),
+    })
+  }
+
+  const handleApplyLabels = async () => {
+    if (isImported) return
+    const current = Array.isArray(mail?.labels) ? mail.labels : []
+    const input = window.prompt('Labels (comma separated)', current.join(', '))
+    if (!input) return
+    const labels = input.split(',').map((s) => s.trim()).filter(Boolean)
+    if (labels.length === 0) return
+    try {
+      await queueAction('label', { labels })
+      patchMail({ labels: Array.from(new Set([...(current || []), ...labels])) })
+    } catch {
+      // ignore
+    }
+  }
+
   const handleReadToggle = async () => {
     if (isImported) return
     const nextSeen = mail?.seen !== true
@@ -702,17 +731,18 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
                 </button>
               </li>
               <li>
+                <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleReplyAll}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/reply-all.svg" className="svg-icon-inline" alt="Reply All"/></span>
+                  <span className="db-submenu-main-btn__text">Reply All</span>
+                </button>
+              </li>
+              <li>
                 <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleForward}>
                   <span className="db-submenu-main-btn__icon"><img src="/img/icons/forward.svg" className="svg-icon-inline" alt="Forward"/></span>
                   <span className="db-submenu-main-btn__text">Forward</span>
                 </button>
               </li>
-              <li>
-                <button className="db-submenu-main-btn" type="button" onClick={openHeadersPanel}>
-                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/mail.svg" className="svg-icon-inline" alt="Headers"/></span>
-                  <span className="db-submenu-main-btn__text">Headers</span>
-                </button>
-              </li>
+
               <li className="db-submenu-menu-wrap" ref={moveMenuRef}>
                 <button
                   type="button"
@@ -741,10 +771,25 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
                   </div>
                 )}
               </li>
+
+              <li>
+                <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleApplyLabels}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/label.svg" className="svg-icon-inline" alt="Labels"/></span>
+                  <span className="db-submenu-main-btn__text">Labels</span>
+                </button>
+              </li>
+
               <li>
                 <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleReadToggle}>
                   <span className="db-submenu-main-btn__icon"><img src="/img/icons/read.svg" className="svg-icon-inline" alt="Read/Unread"/></span>
                   <span className="db-submenu-main-btn__text">{readToggleLabel}</span>
+                </button>
+              </li>
+
+              <li>
+                <button className="db-submenu-main-btn" type="button" onClick={openHeadersPanel}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/mail.svg" className="svg-icon-inline" alt="Source"/></span>
+                  <span className="db-submenu-main-btn__text">Source</span>
                 </button>
               </li>
             </ul>

@@ -203,8 +203,8 @@ async fn open_mail_window(
   .visible(true)
   // Use a sensible default size for detached mail windows and a comfortable
   // minimum so users don't resize to an unusably small viewport.
-  .inner_size(1000.0, 700.0)
-  .min_inner_size(640.0, 420.0)
+  .inner_size(1200.0, 800.0)
+  .min_inner_size(900.0, 640.0)
   .build()
   .map_err(|e| e.to_string())
   .map(|window| {
