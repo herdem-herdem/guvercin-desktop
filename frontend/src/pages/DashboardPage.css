@@ -1986,6 +1986,7 @@ body.resizing * {
 }
 
 .db-center-panel {
+  position: relative;
   background: color-mix(in srgb, var(--c-surface-2) 88%, transparent);
   border-right: 1px solid var(--c-border-1);
   display: flex;
@@ -1993,6 +1994,52 @@ body.resizing * {
   flex-shrink: 0;
   overflow: visible;
   min-width: var(--db-list-min, 380px);
+}
+
+.db-mail-refresh-indicator {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--c-surface-1) 92%, transparent);
+  border: 1px solid var(--c-border-2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text-1);
+  backdrop-filter: blur(12px) saturate(120%);
+  animation: db-fadeInDown 0.2s ease-out;
+}
+
+.db-spinner-small {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--c-border-2);
+  border-top-color: var(--c-primary, #4aa3ff);
+  border-radius: 50%;
+  animation: db-spin-slow 0.8s linear infinite;
+}
+
+@keyframes db-fadeInDown {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes db-spin-slow {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .db-right-panel {

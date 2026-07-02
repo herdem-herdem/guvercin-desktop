@@ -1261,6 +1261,7 @@ const DashboardPage = () => {
     const [isMailFullscreen, setIsMailFullscreen] = useState(false)
     const [appMenuVisible, setAppMenuVisible] = useState(true)
     const [isSyncing, setIsSyncing] = useState(false)
+    const [isManualRefreshing, setIsManualRefreshing] = useState(false)
     const [actionNotices, setActionNotices] = useState([])
     const [noticeNow, setNoticeNow] = useState(Date.now())
 
@@ -2618,6 +2619,7 @@ const DashboardPage = () => {
 	                                syncMailsFromRemote={syncMailsFromRemote}
                                 prefetchInlineAssets={prefetchInlineAssets}
                                 isSyncing={isSyncing}
+                                setIsSyncing={setIsSyncing}
                                 openMail={openMail}
                                 detachMailToWindow={detachMailToWindow}
                                 detachMailToWindowFromList={detachMailToWindowFromList}
@@ -2970,7 +2972,7 @@ function MailSection({
 	    ensureImapConnected,
 	    folders, labels, selectedFolder, setSelectedFolder, mails, setMails,
 	    selectedMail, setSelectedMail, mailContent, setMailContent, loadingMails, loadingContent, setLoadingContent,
-	    connecting, loadMailsFromCache, syncMailsFromRemote, prefetchInlineAssets, isSyncing,
+	    connecting, loadMailsFromCache, syncMailsFromRemote, prefetchInlineAssets, isSyncing, setIsSyncing,
 	    openMail, detachMailToWindow, detachMailToWindowFromList, iframeRef, getShortTime,
     currentPage, setCurrentPage, maxPage: _maxPage, perPage, setPerPage,
     isMailFullscreen, toggleMailFullscreen,
@@ -2988,6 +2990,7 @@ function MailSection({
     const hasFolderAccess = folders.length > 0
     const hasMailSource = canUseRemoteMail || hasFolderAccess
     const safeToolbarStyle = normalizeToolbarStyle(toolbarStyle)
+    const [isManualRefreshing, setIsManualRefreshing] = useState(false)
     const [activeRibbonTab, setActiveRibbonTab] = useState('home')
     const [expandedFolders, setExpandedFolders] = useState(['INBOX'])
     const [folderWidth, setFolderWidth] = useState(240)
@@ -6451,6 +6454,12 @@ function MailSection({
                                             : { width: Math.max(listWidth, minListWidth), '--db-list-min': `${minListWidth}px` }
                                     }
                                 >
+                                    {isManualRefreshing && (
+                                        <div className="db-mail-refresh-indicator">
+                                            <div className="db-spinner-small" />
+                                            <span>{t('Loading...')}</span>
+                                        </div>
+                                    )}
                                     <div className={`db-mail-toolbar${isMaillistRight ? ' db-mail-toolbar--mirrored' : ''}`} ref={mailToolbarRef}>
                                         <button
                                             type="button"
@@ -6472,14 +6481,22 @@ function MailSection({
                                         className="db-mail-toolbar-btn"
                                         onClick={async () => {
                                             if (!backendReachable) return
-                                            if (networkOnline) {
-                                                const ok = canUseRemoteMail || (await ensureImapConnected({ force: true }))
-                                                if (ok && !isSyncing) {
-                                                    await syncMailsFromRemote(selectedFolder, currentPage, perPage)
-                                                    return
+                                            setIsSyncing(true)
+                                            setIsManualRefreshing(true)
+                                            try {
+                                                if (networkOnline) {
+                                                    const ok = canUseRemoteMail || (await ensureImapConnected({ force: true }))
+                                                    if (ok) {
+                                                        await syncMailsFromRemote(selectedFolder, currentPage, perPage)
+                                                    }
                                                 }
+                                                await loadMailsFromCache(selectedFolder, currentPage, perPage)
+                                            } catch (err) {
+                                                console.error('Error during refresh:', err)
+                                            } finally {
+                                                setIsSyncing(false)
+                                                setIsManualRefreshing(false)
                                             }
-                                            await loadMailsFromCache(selectedFolder, currentPage, perPage)
                                         }}
                                         title={isSyncing ? 'Syncing...' : (canUseRemoteMail ? 'Refresh from server' : 'Load from cache')}
                                         disabled={isSyncing}
