@@ -627,19 +627,6 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
     })
   }
 
-  const handleReplyAll = () => {
-    if (isImported) return
-    const to = (mail?.recipient_to || '').trim()
-    const cc = (mail?.recipient_cc || '').trim()
-    const sender = mailContent?.from_address || mail?.address || ''
-    const toParam = to || sender
-    openMailto({
-      to: toParam,
-      cc: cc,
-      subject: `Re: ${subject}`,
-      body: buildQuotedBody(),
-    })
-  }
 
   const handleApplyLabels = async () => {
     if (isImported) return
@@ -728,12 +715,6 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
                 <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleReply}>
                   <span className="db-submenu-main-btn__icon"><img src="/img/icons/reply.svg" className="svg-icon-inline" alt="Reply"/></span>
                   <span className="db-submenu-main-btn__text">Reply</span>
-                </button>
-              </li>
-              <li>
-                <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleReplyAll}>
-                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/reply-all.svg" className="svg-icon-inline" alt="Reply All"/></span>
-                  <span className="db-submenu-main-btn__text">Reply All</span>
                 </button>
               </li>
               <li>
