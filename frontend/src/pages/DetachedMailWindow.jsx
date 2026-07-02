@@ -137,12 +137,64 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
     }
   }, [externalLinkPromptUrl])
 
-  const attachIframeLinkInterceptor = useCallback(() => {
+
+  // Resize helper: compute content height and set iframe height so the mail
+  // doesn't collapse into a tiny band in detached windows.
+  const resizeIframeToContent = useCallback((iframe) => {
+    if (!iframe) return
+    try {
+      const doc = iframe.contentDocument
+      if (!doc) return
+      const body = doc.body
+      const html = doc.documentElement
+      const height = Math.max(
+        1,
+        Math.ceil(
+          Math.max(
+            html?.scrollHeight || 0,
+            body?.scrollHeight || 0,
+            html?.getBoundingClientRect?.().height || 0,
+            body?.getBoundingClientRect?.().height || 0,
+          ),
+        ),
+      )
+      iframe.style.height = `${height}px`
+    } catch {
+      // ignore (sandbox / cross-origin)
+    }
+  }, [])
+
+  const attachIframeImageListeners = useCallback((iframe) => {
+    if (!iframe) return
+    try {
+      const doc = iframe.contentDocument
+      const images = Array.from(doc?.images || [])
+      images.forEach((img) => {
+        if (!img) return
+        if (img.complete && img.naturalWidth > 0) return
+        const done = () => {
+          img.removeEventListener('load', done)
+          img.removeEventListener('error', done)
+          resizeIframeToContent(iframe)
+        }
+        img.addEventListener('load', done, { once: true })
+        img.addEventListener('error', done, { once: true })
+      })
+    } catch {
+      // ignore
+    }
+  }, [resizeIframeToContent])
+
+  const handleIframeLoad = useCallback(() => {
+    const iframe = iframeRef.current
+    if (!iframe) return
+    resizeIframeToContent(iframe)
+    attachIframeImageListeners(iframe)
     if (linkCleanupRef.current) linkCleanupRef.current()
-    linkCleanupRef.current = installIframeLinkInterceptor(iframeRef.current, (href) => {
-      handleExternalLink(href)
-    })
-  }, [handleExternalLink])
+    linkCleanupRef.current = installIframeLinkInterceptor(iframe, (href) => { handleExternalLink(href) })
+    window.setTimeout(() => resizeIframeToContent(iframe), 50)
+    window.setTimeout(() => resizeIframeToContent(iframe), 250)
+  }, [resizeIframeToContent, attachIframeImageListeners, handleExternalLink])
 
   useEffect(() => {
     return () => {
@@ -612,32 +664,64 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
         onSelect={onExternalLinkPromptSelect}
       />
       <div className="db-navbar">
-        <div className="db-logo-icon"><img src="../icon/guvercin-textless-unplanned.svg" alt="Guvercin" style={{width: '24px', height: '24px'}} /></div>
-        <span className="db-logo-text">Guvercin</span>
+        <button className="db-logo-btn" style={{ padding: 0, height: '40px', background: 'transparent', minWidth: '140px', border: 'none' }}>
+          <img src="/img/logo/guvercin-righttext-nobackground.svg" alt="Guvercin" style={{ height: '100%', width: 'auto', display: 'block' }} />
+        </button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button className="db-icon-btn" title="Close" onClick={closeWindow}>✕</button>
+          <button className="db-icon-btn" title="Close" onClick={closeWindow}><img src="/img/icons/close.svg" className="svg-icon-inline" alt="close"/></button>
         </div>
       </div>
 
       <div className="db-section-area">
         <div className="db-right-panel" style={{ flex: 1 }}>
-          <div className="db-submenu">
+          <div className="db-submenu db-submenu--icon_text_small">
             <div className="db-submenu-scroll" ref={submenuScrollRef}>
             <ul>
-              <li><button type="button" disabled={isImported} onClick={handleDelete}>🗑️ Delete</button></li>
-              <li><button type="button" disabled={isImported} onClick={() => handleMove('Trash')}>🗃️ Move to Trash</button></li>
-              <li><button type="button" disabled={isImported} onClick={() => handleMove('Archive')}>📦 Archive</button></li>
-              <li><button type="button" disabled={isImported} onClick={handleReply}>↩️ Reply</button></li>
-              <li><button type="button" disabled={isImported} onClick={handleForward}>➡️ Forward</button></li>
-              <li><button type="button" onClick={openHeadersPanel}>Headers</button></li>
+              <li>
+                <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleDelete}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/recycle-bin.svg" className="svg-icon-inline" alt="Delete"/></span>
+                  <span className="db-submenu-main-btn__text">Delete</span>
+                </button>
+              </li>
+              <li>
+                <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={() => handleMove('Trash')}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/move-to-folder.svg" className="svg-icon-inline" alt="Move to Trash"/></span>
+                  <span className="db-submenu-main-btn__text">Move to Trash</span>
+                </button>
+              </li>
+              <li>
+                <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={() => handleMove('Archive')}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/archive.svg" className="svg-icon-inline" alt="Archive"/></span>
+                  <span className="db-submenu-main-btn__text">Archive</span>
+                </button>
+              </li>
+              <li>
+                <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleReply}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/reply.svg" className="svg-icon-inline" alt="Reply"/></span>
+                  <span className="db-submenu-main-btn__text">Reply</span>
+                </button>
+              </li>
+              <li>
+                <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleForward}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/forward.svg" className="svg-icon-inline" alt="Forward"/></span>
+                  <span className="db-submenu-main-btn__text">Forward</span>
+                </button>
+              </li>
+              <li>
+                <button className="db-submenu-main-btn" type="button" onClick={openHeadersPanel}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/mail.svg" className="svg-icon-inline" alt="Headers"/></span>
+                  <span className="db-submenu-main-btn__text">Headers</span>
+                </button>
+              </li>
               <li className="db-submenu-menu-wrap" ref={moveMenuRef}>
                 <button
                   type="button"
                   disabled={isImported}
-                  className={isMoveMenuOpen ? 'submenu-open' : ''}
+                  className={`db-submenu-main-btn ${isMoveMenuOpen ? 'submenu-open' : ''}`.trim()}
                   onClick={() => setIsMoveMenuOpen((prev) => !prev)}
                 >
-                  📁 Move
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/folder.svg" className="svg-icon-inline" alt="Move"/></span>
+                  <span className="db-submenu-main-btn__text">Move</span>
                 </button>
                 {isMoveMenuOpen && (
                   <div 
@@ -657,7 +741,12 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
                   </div>
                 )}
               </li>
-              <li><button type="button" disabled={isImported} onClick={handleReadToggle}>👁️ {readToggleLabel}</button></li>
+              <li>
+                <button className="db-submenu-main-btn" type="button" disabled={isImported} onClick={handleReadToggle}>
+                  <span className="db-submenu-main-btn__icon"><img src="/img/icons/read.svg" className="svg-icon-inline" alt="Read/Unread"/></span>
+                  <span className="db-submenu-main-btn__text">{readToggleLabel}</span>
+                </button>
+              </li>
             </ul>
             </div>
           </div>
@@ -697,7 +786,7 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
                     title="mail-content"
                     sandbox="allow-same-origin allow-scripts"
                     srcDoc={sanitizeMailHtml(mailContent.html_body)}
-                    onLoad={attachIframeLinkInterceptor}
+                    onLoad={handleIframeLoad}
                   />
                 </div>
               ) : (
