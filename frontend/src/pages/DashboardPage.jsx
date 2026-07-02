@@ -3353,7 +3353,7 @@ function MailSection({
     const canForwardActionMail = actionableMails.length === 1
     const canOpenActionMail = actionableMails.length === 1
     const allActionMailsSeen = hasAnyActionMail && actionableMails.every((mail) => mail.seen === true)
-    const homeReplyLabel = hasMultipleActionMails ? 'Bulk Reply' : 'Reply'
+    const homeReplyLabel = 'Reply'
     const readToggleLabel = allActionMailsSeen ? 'Unread' : 'Read'
     const moveFolderOptions = useMemo(() => folders.filter(isMoveTargetMailbox), [folders])
     const labelOptions = useMemo(() => {
@@ -5537,10 +5537,6 @@ function MailSection({
         await composeReplyDraft(actionableMails, 'reply')
     }
 
-    const handleReplyAllAction = async () => {
-        if (!hasAnyActionMail) return
-        await composeReplyDraft(actionableMails, 'reply_all')
-    }
 
     const handleForwardAction = async () => {
         if (!hasAnyActionMail || hasMultipleActionMails) return
@@ -5674,11 +5670,6 @@ function MailSection({
         await composeReplyDraft([{ ...activeTabMail, mailbox }], 'reply')
     }
 
-    const handleActiveTabReplyAllAction = async () => {
-        if (!activeTabMail) return
-        const mailbox = activeTab?.mailbox || activeTabMail?.mailbox || selectedFolder || 'INBOX'
-        await composeReplyDraft([{ ...activeTabMail, mailbox }], 'reply_all')
-    }
 
     const handleActiveTabForwardAction = async () => {
         if (!activeTabMail) return
@@ -5879,7 +5870,6 @@ function MailSection({
                                         <li><button className="db-submenu-main-btn" disabled={!activeTabMail} onClick={handleActiveTabMoveToTrashAction}>{toolbarMainButtonContent(<img src="/img/icons/move-to-folder.svg" className="svg-icon-inline" />, t('Move to Trash'))}</button></li>
                                         <li><button className="db-submenu-main-btn" disabled={!activeTabMail} onClick={handleActiveTabArchiveAction}>{toolbarMainButtonContent(<img src="/img/icons/archive.svg" className="svg-icon-inline" />, t('Archive'))}</button></li>
                                         <li><button className="db-submenu-main-btn" disabled={!activeTabMail} onClick={handleActiveTabReplyAction}>{toolbarMainButtonContent(<img src="/img/icons/reply.svg" className="svg-icon-inline" />, 'Reply')}</button></li>
-                                        <li><button className="db-submenu-main-btn" disabled={!activeTabMail} onClick={handleActiveTabReplyAllAction}>{toolbarMainButtonContent(<img src="/img/icons/reply-all.svg" className="svg-icon-inline" />, 'Reply All')}</button></li>
                                         <li><button className="db-submenu-main-btn" disabled={!activeTabMail} onClick={handleActiveTabForwardAction}>{toolbarMainButtonContent(<img src="/img/icons/forward.svg" className="svg-icon-inline" />, 'Forward')}</button></li>
                                         <li className="db-submenu-menu-wrap" ref={moveMenuRef}>
                                             <button
@@ -5954,9 +5944,8 @@ function MailSection({
                                 <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleDeleteAction}>{toolbarMainButtonContent(<img src="/img/icons/recycle-bin.svg" className="svg-icon-inline" />, t('Delete'))}</button></li>
                                 <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleMoveToTrashAction}>{toolbarMainButtonContent(<img src="/img/icons/move-to-folder.svg" className="svg-icon-inline" />, t('Move to Trash'))}</button></li>
                                 <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleArchiveAction}>{toolbarMainButtonContent(<img src="/img/icons/archive.svg" className="svg-icon-inline" />, t('Archive'))}</button></li>
-                                <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleReplyAction}>{toolbarMainButtonContent(hasMultipleActionMails ? <img src="/img/icons/reply-all.svg" className="svg-icon-inline" /> : <img src="/img/icons/reply.svg" className="svg-icon-inline" />, homeReplyLabel)}</button></li>
+                                <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleReplyAction}>{toolbarMainButtonContent(<img src="/img/icons/reply.svg" className="svg-icon-inline" />, homeReplyLabel)}</button></li>
                                 {!hasMultipleActionMails && (
-                                    <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleReplyAllAction}>{toolbarMainButtonContent(<img src="/img/icons/reply-all.svg" className="svg-icon-inline" />, 'Reply All')}</button></li>
                                 )}
                                 <li>
                                     <button

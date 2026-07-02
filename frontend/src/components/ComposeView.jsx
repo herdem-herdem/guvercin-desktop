@@ -484,7 +484,6 @@ export default function ComposeView({ draft, onDraftChange, onSend, onDiscard, a
                                 onChange={(e) => patchBulkReplyOptions({ mode: e.target.value })}
                             >
                                 <option value="reply">Reply</option>
-                                <option value="reply_all">Reply All</option>
                             </select>
                         </label>
                         <label className="cv-banner__label cv-banner__checkbox">
@@ -604,7 +603,7 @@ export default function ComposeView({ draft, onDraftChange, onSend, onDiscard, a
                 >
                     {sending ? '⏳ Sending...'
                         : isBulkReplyMode
-                            ? <><img src="/img/icons/reply-all.svg" className="svg-icon-inline" /> Send replies ({bulkReplyCount})</>
+                            ? <><img src="/img/icons/reply.svg" className="svg-icon-inline" /> Send replies ({bulkReplyCount})</>
                             : isForwardMode
                                 ? <><img src="/img/icons/forward.svg" className="svg-icon-inline" /> Forward</>
                                 : <><img src="/img/icons/mail.svg" className="svg-icon-inline" /> Send</>}
