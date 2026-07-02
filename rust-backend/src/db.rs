@@ -94,11 +94,6 @@ impl AppState {
                             "No keyring key found; assuming general.db is already plaintext."
                         );
                     }
-                    Err(KeyStoreError::Denied) => {
-                        return Err(AppError::KeyringDenied(
-                            "Keyring access denied during migration.".to_string(),
-                        ));
-                    }
                     Err(KeyStoreError::Other(e)) => {
                         return Err(AppError::KeyringUnavailable(e));
                     }
@@ -171,9 +166,6 @@ impl AppState {
                     .await
                 {
                     Ok(crypto) => crypto,
-                    Err(KeyStoreError::Denied) => {
-                        return Err(AppError::KeyringDenied("Keyring access denied".to_string()))
-                    }
                     Err(KeyStoreError::Other(e)) => {
                         return Err(AppError::KeyringUnavailable(e));
                     }
@@ -184,11 +176,6 @@ impl AppState {
                     }
                 };
                 return self.init_with_crypto(Arc::new(crypto)).await;
-            }
-            Err(KeyStoreError::Denied) => {
-                return Err(AppError::KeyringDenied(
-                    "Keyring access denied. Unlock your system keyring to continue.".to_string(),
-                ))
             }
             Err(KeyStoreError::Other(e)) => {
                 return Err(AppError::KeyringUnavailable(e));

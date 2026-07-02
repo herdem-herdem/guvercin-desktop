@@ -117,11 +117,6 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
             "/api/security/settings",
             get(security_routes::get_security_settings).put(security_routes::put_security_settings),
         )
-        .route(
-            "/api/security/verify-password",
-            post(security_routes::verify_password),
-        )
-        .route("/api/security/unlock", post(security_routes::unlock))
         .with_state(db_state);
 
     let mail_router = Router::new()
@@ -268,21 +263,4 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
     Ok(port)
 }
 
-pub async fn init_keyring() -> anyhow::Result<()> {
-    init_tracing();
-    crypto::CryptoManager::create_and_store(crypto::KEYRING_PROMPT)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    tracing::info!("Keyring initialized");
-    Ok(())
-}
 
-pub async fn check_keyring() -> anyhow::Result<()> {
-    init_tracing();
-    let raw = crate::keystore::load_master_key(crypto::KEYRING_PROMPT)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    let _ = crypto::CryptoManager::from_raw(raw)?;
-    tracing::info!("Keyring access OK");
-    Ok(())
-}
