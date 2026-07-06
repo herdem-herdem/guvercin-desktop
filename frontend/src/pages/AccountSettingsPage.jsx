@@ -107,61 +107,68 @@ function AccountSettingsPage() {
                         </svg>
                         {t('Back')}
                     </button>
-                    <h2>{t('Manage Accounts')}</h2>
+                    <h2>{t('Settings')}</h2>
                 </header>
 
                 <div className="asp-content">
-                    {loading ? (
-                        <div className="asp-loading">
-                            <div className="asp-spinner"></div>
-                            <p>{t('Loading accounts...')}</p>
-                        </div>
-                    ) : error ? (
-                        <div className="asp-error-state">
-                            <p>{error}</p>
-                            <button onClick={fetchAccounts}>{t('Try again')}</button>
-                        </div>
-                    ) : accounts.length === 0 ? (
-                        <div className="asp-empty-state">
-                            <p>{t('No accounts found.')}</p>
-                        </div>
-                    ) : (
-                        <ul className="asp-account-list">
-                            {accounts.map(acc => (
-                                <li key={acc.account_id} className="asp-account-item">
-                                    <div className="asp-account-info">
-                                        <div className="asp-account-name">{acc.display_name}</div>
-                                        <div className="asp-account-email">{acc.email_address}</div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        className="asp-delete-btn"
-                                        title={t('Delete Account')}
-                                        onClick={() => handleDeleteClick(acc)}
-                                    >
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <polyline points="3 6 5 6 21 6"></polyline>
-                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                        </svg>
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
+                    {/* Account Manager Section */}
+                    <section className="asp-section">
+                        <h3 className="asp-section-title">{t('Account Manager')}</h3>
+                        {loading ? (
+                            <div className="asp-loading">
+                                <div className="asp-spinner"></div>
+                                <p>{t('Loading accounts...')}</p>
+                            </div>
+                        ) : error ? (
+                            <div className="asp-error-state">
+                                <p>{error}</p>
+                                <button onClick={fetchAccounts}>{t('Try again')}</button>
+                            </div>
+                        ) : accounts.length === 0 ? (
+                            <div className="asp-empty-state">
+                                <p>{t('No accounts found.')}</p>
+                            </div>
+                        ) : (
+                            <ul className="asp-account-list">
+                                {accounts.map(acc => (
+                                    <li key={acc.account_id} className="asp-account-item">
+                                        <div className="asp-account-info">
+                                            <div className="asp-account-name">{acc.display_name}</div>
+                                            <div className="asp-account-email">{acc.email_address}</div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="asp-delete-btn"
+                                            title={t('Delete Account')}
+                                            onClick={() => handleDeleteClick(acc)}
+                                        >
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="3 6 5 6 21 6"></polyline>
+                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                            </svg>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </section>
 
-                    <div className="asp-uninstall-section">
-                        <hr className="asp-divider" />
-                        <h3>{t('Uninstall Application')}</h3>
-                        <p>{t('Completely remove Guvercin and all associated data from your computer.')}</p>
-                        <button
-                            type="button"
-                            className="asp-btn-uninstall"
-                            onClick={() => setShowUninstallConfirm(true)}
-                            disabled={isUninstalling}
-                        >
-                            {isUninstalling ? t('Uninstalling...') : t('Uninstall Guvercin')}
-                        </button>
-                    </div>
+                    {/* Advanced Section */}
+                    <section className="asp-section asp-section--advanced">
+                        <h3 className="asp-section-title">{t('Advanced')}</h3>
+                        <div className="asp-advanced-group">
+                            <h4 className="asp-advanced-title">{t('Uninstall Application')}</h4>
+                            <p className="asp-advanced-description">{t('Completely remove Guvercin and all associated data from your computer.')}</p>
+                            <button
+                                type="button"
+                                className="asp-btn-uninstall"
+                                onClick={() => setShowUninstallConfirm(true)}
+                                disabled={isUninstalling}
+                            >
+                                {isUninstalling ? t('Uninstalling...') : t('Uninstall Guvercin')}
+                            </button>
+                        </div>
+                    </section>
                 </div>
             </div>
 
