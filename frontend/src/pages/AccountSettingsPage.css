@@ -290,3 +290,62 @@
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+.asp-uninstall-section {
+    margin-top: 40px;
+    padding-top: 30px;
+    border-top: 1px solid var(--c-border-1);
+}
+
+.asp-divider {
+    margin: 0;
+    border: none;
+    height: 1px;
+    background: var(--c-border-1);
+}
+
+.asp-uninstall-section h3 {
+    margin: 20px 0 10px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #ef4444;
+}
+
+.asp-uninstall-section p {
+    margin: 0 0 20px 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--c-text-2);
+}
+
+.asp-uninstall-section ul {
+    margin: 10px 0 0 0;
+    padding-left: 20px;
+    font-size: 14px;
+    color: var(--c-text-2);
+}
+
+.asp-uninstall-section li {
+    margin-bottom: 6px;
+}
+
+.asp-btn-uninstall {
+    padding: 12px 20px;
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.asp-btn-uninstall:hover:not(:disabled) {
+    background: #dc2626;
+}
+
+.asp-btn-uninstall:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

@@ -652,14 +652,12 @@ function LoginPage() {
                 throw json
             }
 
-            setResponseMessage({ type: 'success', text: json.message })
-
             localStorage.setItem('temp_account_form', JSON.stringify(formData))
             clearDraft()
 
             setTimeout(() => {
                 navigate('/theme')
-            }, 2000)
+            }, 500)
         } catch (error) {
             console.error('Error Details:', error)
             setLoading(false)

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { invoke } from '@tauri-apps/api/core'
 import { apiUrl } from '../utils/api'
 import './AccountSettingsPage.css'
 
@@ -17,6 +18,10 @@ function AccountSettingsPage() {
     const [deletePassword, setDeletePassword] = useState('')
     const [deleteError, setDeleteError] = useState(null)
     const [isDeleting, setIsDeleting] = useState(false)
+
+    // Uninstall state
+    const [showUninstallConfirm, setShowUninstallConfirm] = useState(false)
+    const [isUninstalling, setIsUninstalling] = useState(false)
 
     const fetchAccounts = useCallback(async () => {
         try {
@@ -81,6 +86,16 @@ function AccountSettingsPage() {
         }
     }
 
+    const handleUninstall = async () => {
+        setIsUninstalling(true)
+        try {
+            await invoke('uninstall_app')
+        } catch (err) {
+            console.error('Uninstall error:', err)
+            setIsUninstalling(false)
+        }
+    }
+
     return (
         <div className="account-settings-page">
             <div className="asp-container">
@@ -118,9 +133,9 @@ function AccountSettingsPage() {
                                         <div className="asp-account-name">{acc.display_name}</div>
                                         <div className="asp-account-email">{acc.email_address}</div>
                                     </div>
-                                    <button 
-                                        type="button" 
-                                        className="asp-delete-btn" 
+                                    <button
+                                        type="button"
+                                        className="asp-delete-btn"
                                         title={t('Delete Account')}
                                         onClick={() => handleDeleteClick(acc)}
                                     >
@@ -133,6 +148,20 @@ function AccountSettingsPage() {
                             ))}
                         </ul>
                     )}
+
+                    <div className="asp-uninstall-section">
+                        <hr className="asp-divider" />
+                        <h3>{t('Uninstall Application')}</h3>
+                        <p>{t('Completely remove Guvercin and all associated data from your computer.')}</p>
+                        <button
+                            type="button"
+                            className="asp-btn-uninstall"
+                            onClick={() => setShowUninstallConfirm(true)}
+                            disabled={isUninstalling}
+                        >
+                            {isUninstalling ? t('Uninstalling...') : t('Uninstall Guvercin')}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -145,13 +174,13 @@ function AccountSettingsPage() {
                             <br/><br/>
                             {t('This will permanently erase all local data for this account from your PC. This action cannot be undone.')}
                         </p>
-                        
+
                         <form onSubmit={confirmDelete} className="asp-modal-form">
                             <div className="asp-input-group">
                                 <label htmlFor="delete-pwd">{t('Enter password to confirm:')}</label>
-                                <input 
+                                <input
                                     id="delete-pwd"
-                                    type="password" 
+                                    type="password"
                                     placeholder={t('Account Password')}
                                     value={deletePassword}
                                     onChange={e => setDeletePassword(e.target.value)}
@@ -175,6 +204,35 @@ function AccountSettingsPage() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {showUninstallConfirm && (
+                <div className="asp-modal-overlay">
+                    <div className="asp-modal">
+                        <h3 className="asp-modal-title">{t('Uninstall Guvercin')}</h3>
+                        <p className="asp-modal-warning">
+                            {t('Are you sure you want to uninstall Guvercin?')}
+                            <br/><br/>
+                            {t('This will:')}
+                            <ul style={{ marginTop: '10px', marginLeft: '20px' }}>
+                                <li>{t('Delete the application from your computer')}</li>
+                                <li>{t('Remove all email accounts and data')}</li>
+                                <li>{t('Delete all cached emails and settings')}</li>
+                            </ul>
+                            <br/>
+                            {t('This action cannot be undone.')}
+                        </p>
+
+                        <div className="asp-modal-actions">
+                            <button type="button" className="asp-btn-cancel" onClick={() => setShowUninstallConfirm(false)} disabled={isUninstalling}>
+                                {t('Cancel')}
+                            </button>
+                            <button type="button" className="asp-btn-danger" onClick={handleUninstall} disabled={isUninstalling}>
+                                {isUninstalling ? t('Uninstalling...') : t('Uninstall')}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

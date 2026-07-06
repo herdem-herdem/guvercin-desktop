@@ -1222,8 +1222,8 @@ const DashboardPage = () => {
 
     const [activeSection, setActiveSection] = useState('mail')
     const [appLayout, setAppLayout] = useState({
-        top: ['main', 'tabs'],
-        bottom: ['tools'],
+        top: ['tools', 'main', 'tabs'],
+        bottom: [],
         left: ['apps', 'mailboxes', 'maillist'],
         right: []
     })
@@ -2561,6 +2561,10 @@ const DashboardPage = () => {
                                         <button type="button" className="account-popover__action-item" onClick={handleLogout}>
                                             <img src="/img/icons/logout.svg" className="svg-icon-inline account-popover__action-icon" alt="" />
                                             <span>{t('Logout')}</span>
+                                        </button>
+                                        <button type="button" className="account-popover__action-item account-popover__action-item--danger" onClick={() => { closeAccountMenu(); navigate('/account-settings'); }}>
+                                            <img src="/img/icons/delete.svg" className="svg-icon-inline account-popover__action-icon" alt="" />
+                                            <span>{t('Delete Account')}</span>
                                         </button>
                                         <button type="button" className="account-popover__action-item account-popover__action-item--danger" onClick={handleExitApp}>
                                             <img src="/img/icons/close.svg" className="svg-icon-inline account-popover__action-icon" alt="" />

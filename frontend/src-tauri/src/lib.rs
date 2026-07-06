@@ -547,6 +547,28 @@ fn write_user_theme(handle: tauri::AppHandle, name: String, json: String) -> Res
   Ok(())
 }
 
+#[tauri::command]
+fn uninstall_app(handle: tauri::AppHandle) -> Result<(), String> {
+  std::thread::spawn(move || {
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // Delete app from Applications
+    let _ = fs::remove_dir_all("/Applications/guvercin.app");
+
+    // Delete all user data
+    if let Ok(home) = std::env::var("HOME") {
+      let _ = fs::remove_dir_all(format!("{}/Library/Application Support/Guvercin", home));
+      let _ = fs::remove_dir_all(format!("{}/.config/guvercin", home));
+      let _ = fs::remove_dir_all(format!("{}/.guvercin", home));
+    }
+
+    // Exit the app
+    handle.exit(0);
+  });
+
+  Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -662,7 +684,8 @@ pub fn run() {
       list_user_themes,
       read_user_theme,
       write_user_theme,
-      get_backend_port
+      get_backend_port,
+      uninstall_app
     ])
     .manage(MailWindowStore::default())
     .manage(ComposeWindowStore::default())
