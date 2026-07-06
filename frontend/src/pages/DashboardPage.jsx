@@ -5949,8 +5949,6 @@ function MailSection({
                                 <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleMoveToTrashAction}>{toolbarMainButtonContent(<img src="/img/icons/move-to-folder.svg" className="svg-icon-inline" />, t('Move to Trash'))}</button></li>
                                 <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleArchiveAction}>{toolbarMainButtonContent(<img src="/img/icons/archive.svg" className="svg-icon-inline" />, t('Archive'))}</button></li>
                                 <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleReplyAction}>{toolbarMainButtonContent(<img src="/img/icons/reply.svg" className="svg-icon-inline" />, homeReplyLabel)}</button></li>
-                                {!hasMultipleActionMails && (
-                                )}
                                 <li>
                                     <button
                                         className="db-submenu-main-btn"
