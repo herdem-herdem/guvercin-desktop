@@ -43,6 +43,7 @@ import {
 } from '../utils/mailHeaders.js'
 import { clearAccountSession } from '../utils/accountStorage.js'
 import { subscribeMailto } from '../utils/mailtoInbox.js'
+import { subscribeEml } from '../utils/emlInbox.js'
 import {
     isDefaultMailClient,
     setAsDefaultMailClient,
@@ -4784,6 +4785,43 @@ function MailSection({
         setInlineComposeSession(null)
         setImportPreview(null)
     }, [nextTabId, setActiveTabId, setInlineComposeSession, setMailContent, setSelectedMail, setTabContents, setTabs])
+
+    // Handle `.eml`/`.msg` files opened via OS file association. Reads the file
+    // through the Rust `read_eml_file` command, runs it through the same import
+    // parser the manual importer uses, and opens the result in a new tab. Drains
+    // any files queued before an account was active (cold start).
+    useEffect(() => {
+        if (!accountId) return undefined
+        const unsubscribe = subscribeEml(async (filePath) => {
+            try {
+                const { invoke } = await import('@tauri-apps/api/core')
+                const base64 = await invoke('read_eml_file', { path: filePath })
+                const binary = atob(base64)
+                const bytes = new Uint8Array(binary.length)
+                for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+
+                const kind = filePath.toLowerCase().endsWith('.msg') ? 'msg' : 'eml'
+                const endpoint = `/api/mail/${accountId}/import-preview?kind=${encodeURIComponent(kind)}`
+                const res = await fetch(apiUrl(endpoint), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: bytes,
+                })
+                if (!res.ok) {
+                    const text = await res.text().catch(() => '')
+                    throw new Error(text || 'Import failed.')
+                }
+                const data = await res.json()
+                if (data?.mail && data?.content) {
+                    openImportedMailInTab(data.mail, data.content)
+                }
+            } catch (error) {
+                console.error('Failed to open associated mail file:', error)
+                window.alert('Failed to open the mail file.')
+            }
+        })
+        return unsubscribe
+    }, [accountId, openImportedMailInTab])
 
     const handleOpenActionMailInTab = async () => {
         if (!canOpenActionMail) return

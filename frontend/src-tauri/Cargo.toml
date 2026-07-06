@@ -30,6 +30,7 @@ libsqlite3-sys = { version = "0.27", features = ["bundled-sqlcipher"] }
 open = "5.3.2"
 arboard = "3.4.0"
 tauri-plugin-deep-link = "2"
+base64 = "0.22"
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

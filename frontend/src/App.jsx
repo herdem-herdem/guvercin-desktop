@@ -12,6 +12,7 @@ import i18n from './i18n'
 import { useTranslation } from 'react-i18next'
 import { hydrateAccountSession } from './utils/accountStorage.js'
 import { initMailtoInbox } from './utils/mailtoInbox.js'
+import { initEmlInbox } from './utils/emlInbox.js'
 import ThemePage from './pages/ThemePage.jsx'
 import SettingsPage from './pages/SettingsPage.jsx'
 import AccountSettingsPage from './pages/AccountSettingsPage.jsx'
@@ -53,6 +54,7 @@ function App() {
   useEffect(() => {
     if (isMailWindow || isComposeWindow) return
     initMailtoInbox()
+    initEmlInbox()
   }, [isMailWindow, isComposeWindow])
 
   useEffect(() => {

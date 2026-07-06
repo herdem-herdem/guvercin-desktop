@@ -417,6 +417,63 @@ fn get_all_domain_link_behaviors(
     .collect()
 }
 
+/// Reads a `.eml`/`.msg` file the OS opened us with (via file association) and
+/// returns its contents base64-encoded. Accepts either a plain filesystem path
+/// or a `file://` URL (macOS delivers file associations as `file://` deep links).
+/// Only message file extensions are allowed so this can't be used to read
+/// arbitrary files off disk.
+#[tauri::command]
+fn read_eml_file(path: String) -> Result<String, String> {
+  use base64::Engine as _;
+
+  let raw = path.trim();
+  // Normalize a `file://` URL into a filesystem path.
+  let path_str = if let Some(rest) = raw.strip_prefix("file://") {
+    // Drop an optional host component (file://host/path -> /path).
+    let rest = match rest.find('/') {
+      Some(idx) => &rest[idx..],
+      None => rest,
+    };
+    percent_decode(rest)
+  } else {
+    raw.to_string()
+  };
+
+  let path = PathBuf::from(&path_str);
+  let ext = path
+    .extension()
+    .and_then(|e| e.to_str())
+    .map(|e| e.to_ascii_lowercase())
+    .unwrap_or_default();
+  if ext != "eml" && ext != "msg" {
+    return Err("Only .eml or .msg files can be opened".to_string());
+  }
+
+  let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+  Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// Minimal percent-decoder for `file://` URL paths (handles %20 etc.).
+fn percent_decode(input: &str) -> String {
+  let bytes = input.as_bytes();
+  let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+  let mut i = 0;
+  while i < bytes.len() {
+    if bytes[i] == b'%' && i + 2 < bytes.len() {
+      let hi = (bytes[i + 1] as char).to_digit(16);
+      let lo = (bytes[i + 2] as char).to_digit(16);
+      if let (Some(hi), Some(lo)) = (hi, lo) {
+        out.push((hi * 16 + lo) as u8);
+        i += 3;
+        continue;
+      }
+    }
+    out.push(bytes[i]);
+    i += 1;
+  }
+  String::from_utf8_lossy(&out).into_owned()
+}
+
 #[tauri::command]
 fn get_backend_port(state: State<'_, BackendPort>) -> Option<u16> {
   *state.0.lock().unwrap()
@@ -445,18 +502,41 @@ fn set_default_mail_client_macos(bundle_id: &str) -> Result<(), String> {
       in_url_scheme: CFStringRef,
       in_handler_bundle_id: CFStringRef,
     ) -> i32;
+    fn LSSetDefaultRoleHandlerForContentType(
+      in_content_type: CFStringRef,
+      in_role: u32,
+      in_handler_bundle_id: CFStringRef,
+    ) -> i32;
   }
 
-  let scheme = CFString::new("mailto");
   let bundle = CFString::new(bundle_id);
+
+  let scheme = CFString::new("mailto");
   let status = unsafe {
     LSSetDefaultHandlerForURLScheme(scheme.as_concrete_TypeRef(), bundle.as_concrete_TypeRef())
   };
-  if status == 0 {
-    Ok(())
-  } else {
-    Err(format!("LSSetDefaultHandlerForURLScheme failed with status {status}"))
+  if status != 0 {
+    return Err(format!("LSSetDefaultHandlerForURLScheme failed with status {status}"));
   }
+
+  // Also claim `.eml` files. macOS maps them to the `com.apple.mail.email`
+  // content type; kLSRolesAll = 0xFFFFFFFF. Requires the bundle to declare this
+  // UTI via LSItemContentTypes (see src-tauri/Info.plist).
+  let eml_uti = CFString::new("com.apple.mail.email");
+  let eml_status = unsafe {
+    LSSetDefaultRoleHandlerForContentType(
+      eml_uti.as_concrete_TypeRef(),
+      0xFFFF_FFFF,
+      bundle.as_concrete_TypeRef(),
+    )
+  };
+  if eml_status != 0 {
+    return Err(format!(
+      "LSSetDefaultRoleHandlerForContentType failed with status {eml_status}"
+    ));
+  }
+
+  Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -787,6 +867,7 @@ pub fn run() {
       read_user_theme,
       write_user_theme,
       get_backend_port,
+      read_eml_file,
       uninstall_app
     ])
     .manage(MailWindowStore::default())

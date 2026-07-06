@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  macOS resolves a `.eml` file to the system UTI `com.apple.mail.email`
+	  (owned by Apple Mail). Tauri's `fileAssociations` only emits
+	  CFBundleTypeExtensions, which registers the extension but does NOT make
+	  Guvercin a candidate handler for that UTI — so it can never become the
+	  default. Declaring LSItemContentTypes with that UTI here (merged into the
+	  generated Info.plist by the Tauri bundler) claims the UTI explicitly, which
+	  lets LSSetDefaultRoleHandlerForContentType assign Guvercin as the default.
+	-->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Email Message</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>eml</string>
+			</array>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.apple.mail.email</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
