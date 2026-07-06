@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { invoke } from '@tauri-apps/api/core'
 import { apiUrl } from '../utils/api'
+import {
+    isDefaultMailClient,
+    setAsDefaultMailClient,
+    markDefaultPromptShown,
+} from '../utils/defaultMailClient.js'
 import './AccountSettingsPage.css'
 
 function AccountSettingsPage() {
@@ -22,6 +27,29 @@ function AccountSettingsPage() {
     // Uninstall state
     const [showUninstallConfirm, setShowUninstallConfirm] = useState(false)
     const [isUninstalling, setIsUninstalling] = useState(false)
+
+    // Default mail client state
+    const [isDefaultMail, setIsDefaultMail] = useState(false)
+    const [isSettingDefault, setIsSettingDefault] = useState(false)
+
+    const refreshDefaultMail = useCallback(async () => {
+        setIsDefaultMail(await isDefaultMailClient())
+    }, [])
+
+    useEffect(() => {
+        refreshDefaultMail()
+    }, [refreshDefaultMail])
+
+    const handleSetDefaultMail = useCallback(async () => {
+        setIsSettingDefault(true)
+        try {
+            await setAsDefaultMailClient()
+            markDefaultPromptShown()
+            await refreshDefaultMail()
+        } finally {
+            setIsSettingDefault(false)
+        }
+    }, [refreshDefaultMail])
 
     const fetchAccounts = useCallback(async () => {
         try {
@@ -151,6 +179,31 @@ function AccountSettingsPage() {
                                 ))}
                             </ul>
                         )}
+                    </section>
+
+                    {/* General Section */}
+                    <section className="asp-section">
+                        <h3 className="asp-section-title">{t('General')}</h3>
+                        <div className="asp-advanced-group">
+                            <h4 className="asp-advanced-title">{t('Default Email App')}</h4>
+                            <p className="asp-advanced-description">
+                                {isDefaultMail
+                                    ? t('Guvercin is your default email app. Email links (mailto:) open in Guvercin.')
+                                    : t('Make Guvercin your default email app so email links (mailto:) open in Guvercin.')}
+                            </p>
+                            <button
+                                type="button"
+                                className="asp-btn"
+                                onClick={handleSetDefaultMail}
+                                disabled={isSettingDefault || isDefaultMail}
+                            >
+                                {isDefaultMail
+                                    ? t('Default Email App')
+                                    : isSettingDefault
+                                        ? t('Setting...')
+                                        : t('Make Default Email App')}
+                            </button>
+                        </div>
                     </section>
 
                     {/* Advanced Section */}

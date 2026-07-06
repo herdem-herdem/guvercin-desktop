@@ -431,6 +431,80 @@ fn open_external_url(url: String) -> Result<(), String> {
   Ok(())
 }
 
+/// Registers this app as the OS default handler for the `mailto:` scheme.
+/// On macOS this calls LaunchServices directly (same mechanism the "Default
+/// email reader" preference and other mail apps use). No-op error on other
+/// platforms where the default is managed elsewhere (installer/desktop file).
+#[cfg(target_os = "macos")]
+fn set_default_mail_client_macos(bundle_id: &str) -> Result<(), String> {
+  use core_foundation::base::TCFType;
+  use core_foundation::string::{CFString, CFStringRef};
+
+  extern "C" {
+    fn LSSetDefaultHandlerForURLScheme(
+      in_url_scheme: CFStringRef,
+      in_handler_bundle_id: CFStringRef,
+    ) -> i32;
+  }
+
+  let scheme = CFString::new("mailto");
+  let bundle = CFString::new(bundle_id);
+  let status = unsafe {
+    LSSetDefaultHandlerForURLScheme(scheme.as_concrete_TypeRef(), bundle.as_concrete_TypeRef())
+  };
+  if status == 0 {
+    Ok(())
+  } else {
+    Err(format!("LSSetDefaultHandlerForURLScheme failed with status {status}"))
+  }
+}
+
+#[cfg(target_os = "macos")]
+fn is_default_mail_client_macos(bundle_id: &str) -> bool {
+  use core_foundation::base::TCFType;
+  use core_foundation::string::{CFString, CFStringRef};
+
+  extern "C" {
+    fn LSCopyDefaultHandlerForURLScheme(in_url_scheme: CFStringRef) -> CFStringRef;
+  }
+
+  let scheme = CFString::new("mailto");
+  let handler_ref = unsafe { LSCopyDefaultHandlerForURLScheme(scheme.as_concrete_TypeRef()) };
+  if handler_ref.is_null() {
+    return false;
+  }
+  let handler = unsafe { CFString::wrap_under_create_rule(handler_ref) };
+  handler.to_string().eq_ignore_ascii_case(bundle_id)
+}
+
+#[tauri::command]
+fn set_as_default_mail_client(app: tauri::AppHandle) -> Result<(), String> {
+  #[cfg(target_os = "macos")]
+  {
+    let id = app.config().identifier.clone();
+    set_default_mail_client_macos(&id)
+  }
+  #[cfg(not(target_os = "macos"))]
+  {
+    let _ = app;
+    Err("Setting the default mail client is only supported on macOS".to_string())
+  }
+}
+
+#[tauri::command]
+fn is_default_mail_client(app: tauri::AppHandle) -> bool {
+  #[cfg(target_os = "macos")]
+  {
+    let id = app.config().identifier.clone();
+    is_default_mail_client_macos(&id)
+  }
+  #[cfg(not(target_os = "macos"))]
+  {
+    let _ = app;
+    false
+  }
+}
+
 #[tauri::command]
 fn copy_to_clipboard(text: String) -> Result<(), String> {
   let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
@@ -571,7 +645,22 @@ fn uninstall_app(handle: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
+  #[allow(unused_mut)]
+  let mut builder = tauri::Builder::default();
+
+  // Single-instance must be registered first so a second launch (e.g. the OS
+  // spawning us to handle a `mailto:` link) is forwarded to the already-running
+  // instance instead of opening a duplicate. Its `deep-link` feature hands the
+  // URL to the deep-link plugin, which the frontend receives via `onOpenUrl`.
+  // macOS delivers deep links to the running instance natively, so this is only
+  // needed on Windows and Linux.
+  #[cfg(any(target_os = "windows", target_os = "linux"))]
+  {
+    builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
+  }
+
+  builder
+    .plugin(tauri_plugin_deep_link::init())
     .plugin(
       tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
@@ -585,6 +674,17 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       let _app_handle = app.handle().clone();
+
+      // Register the configured URI schemes (mailto) with the OS at runtime.
+      // Required for development and for Linux/Windows where the scheme isn't
+      // otherwise installed; harmless on macOS.
+      #[cfg(desktop)]
+      {
+        use tauri_plugin_deep_link::DeepLinkExt;
+        if let Err(e) = app.deep_link().register_all() {
+          log::warn!("Failed to register deep-link schemes: {}", e);
+        }
+      }
 
       let prefs_path = app
         .path()
@@ -680,6 +780,8 @@ pub fn run() {
       remove_domain_link_behavior,
       get_all_domain_link_behaviors,
       open_external_url,
+      set_as_default_mail_client,
+      is_default_mail_client,
       copy_to_clipboard,
       list_user_themes,
       read_user_theme,

@@ -296,7 +296,6 @@ function OfflineSetupPage() {
         theme,
       })
 
-	      alert(t('All processes completed successfully, account settings saved!'))
 	      navigate('/dashboard')
 	    } catch (err) {
 	      console.error('Error finalizing account:', err)

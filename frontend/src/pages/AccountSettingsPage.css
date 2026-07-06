@@ -334,6 +334,27 @@
     color: var(--c-text-2);
 }
 
+.asp-btn {
+    padding: 12px 20px;
+    background: var(--c-primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.asp-btn:hover:not(:disabled) {
+    filter: brightness(0.92);
+}
+
+.asp-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 .asp-btn-uninstall {
     padding: 12px 20px;
     background: #ef4444;

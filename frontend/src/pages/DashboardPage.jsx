@@ -42,6 +42,13 @@ import {
     mailHeadersKey,
 } from '../utils/mailHeaders.js'
 import { clearAccountSession } from '../utils/accountStorage.js'
+import { subscribeMailto } from '../utils/mailtoInbox.js'
+import {
+    isDefaultMailClient,
+    setAsDefaultMailClient,
+    hasShownDefaultPrompt,
+    markDefaultPromptShown,
+} from '../utils/defaultMailClient.js'
 import './DashboardPage.css'
 import SettingsPage from './SettingsPage.jsx'
 
@@ -3666,6 +3673,61 @@ function MailSection({
             },
         }, { preserveExisting: false })
     }, [accountEmail, openInlineCompose])
+
+    // Handle `mailto:` deep links: open a prefilled compose surface. Drains any
+    // links queued before the dashboard mounted (cold start) and receives new
+    // ones while running.
+    useEffect(() => {
+        if (!accountId) return undefined
+        const unsubscribe = subscribeMailto((mailtoDraft) => {
+            openInlineCompose({
+                source: 'new',
+                draft: {
+                    from: accountEmail || '',
+                    to: mailtoDraft.to || '',
+                    cc: mailtoDraft.cc || '',
+                    bcc: mailtoDraft.bcc || '',
+                    subject: mailtoDraft.subject || '',
+                    plainBody: mailtoDraft.plainBody || '',
+                    showCc: Boolean(mailtoDraft.cc),
+                    showBcc: Boolean(mailtoDraft.bcc),
+                },
+            }, { preserveExisting: false })
+        })
+        return unsubscribe
+    }, [accountId, accountEmail, openInlineCompose])
+
+    // First-launch prompt: offer to make Guvercin the default mail app. Shown
+    // once ever (tracked in localStorage), and only if we aren't already the
+    // default. Uses the native dialog so it works before any UI is drawn.
+    useEffect(() => {
+        let cancelled = false
+        const maybePromptDefault = async () => {
+            if (hasShownDefaultPrompt()) return
+            const alreadyDefault = await isDefaultMailClient()
+            if (cancelled || alreadyDefault) {
+                if (alreadyDefault) markDefaultPromptShown()
+                return
+            }
+            try {
+                const { ask } = await import('@tauri-apps/plugin-dialog')
+                const confirmed = await ask(
+                    t('Would you like to make Guvercin your default email app?'),
+                    { title: t('Default Email App'), kind: 'info', okLabel: t('Yes'), cancelLabel: t('No') },
+                )
+                markDefaultPromptShown()
+                if (confirmed && !cancelled) {
+                    await setAsDefaultMailClient()
+                }
+            } catch (error) {
+                console.error('Default mail prompt failed:', error)
+            }
+        }
+        maybePromptDefault()
+        return () => {
+            cancelled = true
+        }
+    }, [t])
 
     const openMailOrDraft = useCallback(async (mail) => {
         if (!mail) return

@@ -11,6 +11,7 @@ import DetachedComposeWindow from './pages/DetachedComposeWindow.jsx'
 import i18n from './i18n'
 import { useTranslation } from 'react-i18next'
 import { hydrateAccountSession } from './utils/accountStorage.js'
+import { initMailtoInbox } from './utils/mailtoInbox.js'
 import ThemePage from './pages/ThemePage.jsx'
 import SettingsPage from './pages/SettingsPage.jsx'
 import AccountSettingsPage from './pages/AccountSettingsPage.jsx'
@@ -45,6 +46,14 @@ function App() {
     || windowLabel === 'compose'
     || windowLabel.startsWith('compose-')
   )
+
+  // Start listening for `mailto:` deep links as early as possible so links
+  // received during a cold start are queued until the dashboard can handle them.
+  // Only the main window installs the listener to avoid duplicate handling.
+  useEffect(() => {
+    if (isMailWindow || isComposeWindow) return
+    initMailtoInbox()
+  }, [isMailWindow, isComposeWindow])
 
   useEffect(() => {
     let active = true
