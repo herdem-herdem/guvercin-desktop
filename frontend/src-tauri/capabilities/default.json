@@ -15,6 +15,10 @@
     "core:window:allow-destroy",
     "core:window:allow-close",
     "core:webview:allow-webview-close",
-    "deep-link:default"
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "deep-link:default",
+    "notification:default"
   ]
 }

@@ -5,8 +5,17 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+  menu::{Menu, MenuItem, PredefinedMenuItem},
+  tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+  Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+};
 use tauri_plugin_log::{Target, TargetKind};
+
+/// Label of the primary window. Tauri assigns "main" to the first window
+/// declared in tauri.conf.json.
+const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_ID: &str = "guvercin-tray";
 
 /// Shared state holding the port the Rust backend is listening on.
 /// Set once during app setup; read by the `get_backend_port` command.
@@ -592,6 +601,41 @@ fn copy_to_clipboard(text: String) -> Result<(), String> {
   Ok(())
 }
 
+/// Brings the main window back from the tray: unhides the app (macOS), then
+/// unminimizes, shows and focuses the window.
+fn show_main_window(app: &tauri::AppHandle) {
+  // On macOS the window is hidden by hiding the whole application (see the
+  // close-to-tray handler), so it must be unhidden before the window can show.
+  #[cfg(target_os = "macos")]
+  let _ = app.show();
+  if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+  }
+}
+
+/// Updates the unread-mail indicator: the OS badge (macOS dock / Linux launcher)
+/// and the tray tooltip. A count of 0 clears both.
+#[tauri::command]
+fn set_unread_badge(app: tauri::AppHandle, count: u32) -> Result<(), String> {
+  if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+    let value = if count == 0 { None } else { Some(count as i64) };
+    let _ = window.set_badge_count(value);
+  }
+
+  if let Some(tray) = app.tray_by_id(TRAY_ID) {
+    let tooltip = if count == 0 {
+      "Guvercin".to_string()
+    } else {
+      format!("Guvercin — {count} unread")
+    };
+    let _ = tray.set_tooltip(Some(tooltip));
+  }
+
+  Ok(())
+}
+
 fn sanitize_theme_name(input: &str) -> String {
   let mut out = String::new();
   for ch in input.trim().to_lowercase().chars() {
@@ -741,6 +785,7 @@ pub fn run() {
 
   builder
     .plugin(tauri_plugin_deep_link::init())
+    .plugin(tauri_plugin_notification::init())
     .plugin(
       tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
@@ -754,6 +799,77 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       let _app_handle = app.handle().clone();
+
+      // System tray: keeps the app reachable while its window is hidden in the
+      // background (see the close-to-tray handler below). Left-clicking the icon
+      // restores the window; the context menu offers quick actions.
+      {
+        let show_i = MenuItem::with_id(app, "show", "Show Guvercin", true, None::<&str>)?;
+        let compose_i = MenuItem::with_id(app, "compose", "New Mail", true, None::<&str>)?;
+        let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+        let sep = PredefinedMenuItem::separator(app)?;
+        let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+        let menu = Menu::with_items(app, &[&show_i, &compose_i, &settings_i, &sep, &quit_i])?;
+
+        let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID)
+          .tooltip("Guvercin")
+          .menu(&menu)
+          .show_menu_on_left_click(false)
+          .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "compose" => {
+              show_main_window(app);
+              let _ = app.emit("tray://new-mail", ());
+            }
+            "settings" => {
+              show_main_window(app);
+              let _ = app.emit("tray://settings", ());
+            }
+            "quit" => app.exit(0),
+            _ => {}
+          })
+          .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+              button: MouseButton::Left,
+              button_state: MouseButtonState::Up,
+              ..
+            } = event
+            {
+              show_main_window(tray.app_handle());
+            }
+          });
+
+        if let Some(icon) = app.default_window_icon().cloned() {
+          tray_builder = tray_builder.icon(icon);
+        }
+        tray_builder.build(app)?;
+      }
+
+      // Close-to-tray: hitting the window's close button hides it instead of
+      // quitting, so background mail sync and notifications keep running. A real
+      // quit is available via the tray menu's "Quit" item.
+      if let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let handle_for_close = app.handle().clone();
+        main_window.on_window_event(move |event| {
+          if let WindowEvent::CloseRequested { api, .. } = event {
+            // On macOS, hide the whole application (like Cmd+H) rather than just
+            // the window. This way clicking a notification or the dock icon
+            // re-activates the app and macOS restores the window automatically,
+            // which in turn fires the focus event that opens the notified mail.
+            #[cfg(target_os = "macos")]
+            {
+              let _ = handle_for_close.hide();
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+              if let Some(win) = handle_for_close.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = win.hide();
+              }
+            }
+            api.prevent_close();
+          }
+        });
+      }
 
       // Register the configured URI schemes (mailto) with the OS at runtime.
       // Required for development and for Linux/Windows where the scheme isn't
@@ -863,6 +979,7 @@ pub fn run() {
       set_as_default_mail_client,
       is_default_mail_client,
       copy_to_clipboard,
+      set_unread_badge,
       list_user_themes,
       read_user_theme,
       write_user_theme,
@@ -873,6 +990,20 @@ pub fn run() {
     .manage(MailWindowStore::default())
     .manage(ComposeWindowStore::default())
     .manage(BackendPort::default())
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|app_handle, event| {
+      // macOS delivers a Reopen event when the user clicks the dock icon while
+      // the app is already running. Because closing the window only hides it
+      // (close-to-tray), the window won't come back on its own — so bring it
+      // back explicitly here.
+      #[cfg(target_os = "macos")]
+      if let tauri::RunEvent::Reopen { .. } = event {
+        show_main_window(app_handle);
+      }
+      #[cfg(not(target_os = "macos"))]
+      {
+        let _ = (app_handle, event);
+      }
+    });
 }

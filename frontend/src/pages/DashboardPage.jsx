@@ -42,8 +42,9 @@ import {
     mailHeadersKey,
 } from '../utils/mailHeaders.js'
 import { clearAccountSession } from '../utils/accountStorage.js'
-import { subscribeMailto } from '../utils/mailtoInbox.js'
+import { subscribeMailto, requestNewCompose } from '../utils/mailtoInbox.js'
 import { subscribeEml } from '../utils/emlInbox.js'
+import { notifyNewMail, setUnreadBadge, subscribeNotificationOpen } from '../utils/notifications.js'
 import {
     isDefaultMailClient,
     setAsDefaultMailClient,
@@ -1264,6 +1265,9 @@ const DashboardPage = () => {
     const [loadingTab, setLoadingTab] = useState(false)
 
     const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+    // Notification center: recent new-mail arrivals surfaced by the poller.
+    const [notifications, setNotifications] = useState([])
+    const [notifOpen, setNotifOpen] = useState(false)
     const [settingsPageOpen, setSettingsPageOpen] = useState(false)
     const [toolbarStyle, setToolbarStyle] = useState(() => normalizeToolbarStyle(localStorage.getItem('toolbar_style')))
     const [isMailFullscreen, setIsMailFullscreen] = useState(false)
@@ -1276,6 +1280,8 @@ const DashboardPage = () => {
     const accountIdRef = useRef(accountId)
     const selectedFolderRef = useRef(selectedFolder)
     const listModeRef = useRef(listMode)
+    const backendReachableRef = useRef(false)
+    const remoteMailAvailableRef = useRef(false)
     const mailsRef = useRef(mails)
     const mailLoadRequestIdRef = useRef(0)
 
@@ -1292,12 +1298,21 @@ const DashboardPage = () => {
     }, [listMode])
 
     useEffect(() => {
+        backendReachableRef.current = backendReachable
+    }, [backendReachable])
+
+    useEffect(() => {
+        remoteMailAvailableRef.current = remoteMailAvailable
+    }, [remoteMailAvailable])
+
+    useEffect(() => {
         mailsRef.current = mails
     }, [mails])
 
     const accountButtonRef = useRef(null)
     const accountMenuRef = useRef(null)
     const accountWrapperRef = useRef(null)
+    const notifWrapperRef = useRef(null)
     const iframeRef = useRef(null)
     const mailIframeLinkCleanupRef = useRef(null)
 
@@ -1342,6 +1357,13 @@ const DashboardPage = () => {
     const syncAbortRef = useRef(null)
     const isSyncingRef = useRef(false)
     const autoRefreshInFlightRef = useRef(false)
+    // New-mail notification tracking: the INBOX mail ids seen on the previous
+    // poll, and whether we've completed the first (baseline) poll yet.
+    const knownInboxIdsRef = useRef(null)
+    const notifPollInFlightRef = useRef(false)
+    // Always points at the latest openMail so the notification-click subscriber
+    // (registered once) doesn't call a stale closure.
+    const openMailRef = useRef(null)
     const nextMailWindowId = useRef(0)
     const nextTabId = useRef(0)
     const nextNoticeIdRef = useRef(0)
@@ -1378,6 +1400,20 @@ const DashboardPage = () => {
             document.removeEventListener('touchstart', onPointerDown)
         }
     }, [accountMenuOpen])
+
+    useEffect(() => {
+        if (!notifOpen) return
+        const onPointerDown = (e) => {
+            if (notifWrapperRef.current?.contains(e.target)) return
+            setNotifOpen(false)
+        }
+        document.addEventListener('mousedown', onPointerDown)
+        document.addEventListener('touchstart', onPointerDown, { passive: true })
+        return () => {
+            document.removeEventListener('mousedown', onPointerDown)
+            document.removeEventListener('touchstart', onPointerDown)
+        }
+    }, [notifOpen])
 
     useEffect(() => {
         if (!accountMenuOpen) return
@@ -1816,6 +1852,139 @@ const DashboardPage = () => {
         selectedFolder,
     ])
 
+    // Background new-mail notifications. Runs independently of the selected
+    // folder so mail arriving in INBOX is announced even when the user is in
+    // another section or the window is hidden in the tray. The first poll for
+    // each account establishes a silent baseline so pre-existing unread mail
+    // doesn't trigger a burst of notifications on launch.
+    useEffect(() => {
+        if (!accountId) return
+        knownInboxIdsRef.current = null
+
+        let cancelled = false
+        const NOTIF_POLL_INTERVAL_MS = 20_000
+
+        const tick = async () => {
+            if (cancelled || notifPollInFlightRef.current) return
+            if (!backendReachableRef.current) return
+            notifPollInFlightRef.current = true
+            try {
+                // Best-effort remote sync so new server-side mail lands in the
+                // local cache even when INBOX isn't the active folder.
+                if (remoteMailAvailableRef.current) {
+                    try {
+                        await fetch(
+                            apiUrl(`/api/offline/${accountId}/sync-mailbox?mailbox=INBOX&page=1&per_page=50`),
+                            { method: 'POST' },
+                        )
+                    } catch { /* offline; fall back to whatever is cached */ }
+                }
+                if (cancelled) return
+
+                const res = await fetch(
+                    apiUrl(`/api/offline/${accountId}/local-list?mailbox=INBOX&page=1&per_page=50`),
+                    { cache: 'no-store' },
+                )
+                if (!res.ok) return
+                const data = await res.json()
+                const mails = Array.isArray(data.mails) ? data.mails : []
+                if (cancelled) return
+
+                const currentIds = new Set(mails.map((m) => m.id))
+                const prevIds = knownInboxIdsRef.current
+
+                if (prevIds === null) {
+                    knownInboxIdsRef.current = currentIds
+                    return
+                }
+
+                const fresh = []
+                for (const m of mails) {
+                    if (m.seen === true) continue
+                    if (prevIds.has(m.id)) continue
+                    const entry = { ...m, mailbox: 'INBOX', receivedAt: Date.now() }
+                    fresh.push(entry)
+                    notifyNewMail(entry)
+                }
+                if (fresh.length > 0) {
+                    // Newest first; keep a bounded history in the notification center.
+                    setNotifications((prev) => [...fresh.reverse(), ...prev].slice(0, 30))
+                }
+                knownInboxIdsRef.current = currentIds
+            } catch (err) {
+                console.error('New-mail notification poll failed:', err)
+            } finally {
+                notifPollInFlightRef.current = false
+            }
+        }
+
+        void tick()
+        const timer = window.setInterval(tick, NOTIF_POLL_INTERVAL_MS)
+        return () => {
+            cancelled = true
+            window.clearInterval(timer)
+        }
+    }, [accountId])
+
+    // Keep the OS unread badge (macOS dock / Linux launcher) and tray tooltip in
+    // sync with the INBOX unread count.
+    useEffect(() => {
+        const counts = mailboxCounts || {}
+        const inboxKey = Object.keys(counts).find((k) => k.toLowerCase() === 'inbox')
+        let unread = 0
+        if (inboxKey) {
+            unread = Number(counts[inboxKey]?.unread) || 0
+        } else {
+            for (const v of Object.values(counts)) unread += Number(v?.unread) || 0
+        }
+        setUnreadBadge(unread)
+    }, [mailboxCounts])
+
+    // Tray menu actions (New Mail / Settings) and mail-notification clicks.
+    // Handled here in DashboardPage so they work from any section: "New Mail"
+    // routes through the compose queue (drained by the mail UI whenever it
+    // mounts), "Settings" navigates, and a notification click opens the mail.
+    useEffect(() => {
+        let active = true
+        let unlistenNewMail = () => {}
+        let unlistenSettings = () => {}
+
+        ;(async () => {
+            try {
+                const { listen } = await import('@tauri-apps/api/event')
+                const u1 = await listen('tray://new-mail', () => {
+                    setActiveSection('mail')
+                    requestNewCompose()
+                })
+                const u2 = await listen('tray://settings', () => {
+                    navigate('/settings')
+                })
+                if (active) {
+                    unlistenNewMail = u1
+                    unlistenSettings = u2
+                } else {
+                    u1(); u2()
+                }
+            } catch {
+                // Not running inside Tauri; tray events are unavailable.
+            }
+        })()
+
+        const unsubscribeOpen = subscribeNotificationOpen((mail) => {
+            if (!mail) return
+            setActiveSection('mail')
+            setSelectedFolder('INBOX')
+            openMailRef.current?.({ ...mail, mailbox: mail.mailbox || 'INBOX' })
+        })
+
+        return () => {
+            active = false
+            unlistenNewMail()
+            unlistenSettings()
+            unsubscribeOpen()
+        }
+    }, [navigate])
+
 
     const exitSearchMode = useCallback(() => {
         setListMode('mailbox')
@@ -1997,6 +2166,7 @@ const DashboardPage = () => {
         }
         setLoadingContent(false)
     }
+    openMailRef.current = openMail
 
     const queueAction = async (actionType, targetUid, payload = {}, targetFolderOverride = null) => {
         if (!accountId || !backendReachable) return
@@ -2529,7 +2699,124 @@ const DashboardPage = () => {
                                 {lastError && <div className="db-sync-popover__error">Error: {lastError}</div>}
                             </div>
                         </div>
-                        <button className="db-icon-btn" title="Notifications"><img src="/img/icons/notification.svg" className="svg-icon-inline" /></button>
+                        <div className="db-notif-wrapper" ref={notifWrapperRef} style={{ position: 'relative' }}>
+                            <button
+                                type="button"
+                                className="db-icon-btn"
+                                title={t('Notifications')}
+                                aria-label={t('Notifications')}
+                                onClick={() => setNotifOpen((v) => !v)}
+                            >
+                                <img src="/img/icons/notification.svg" className="svg-icon-inline" />
+                                {notifications.length > 0 && (
+                                    <span
+                                        aria-hidden="true"
+                                        style={{
+                                            position: 'absolute', top: 2, right: 2,
+                                            minWidth: 16, height: 16, padding: '0 4px',
+                                            borderRadius: 8, background: '#e5484d', color: '#fff',
+                                            fontSize: 10, lineHeight: '16px', textAlign: 'center',
+                                            fontWeight: 600, boxSizing: 'border-box',
+                                        }}
+                                    >
+                                        {notifications.length > 99 ? '99+' : notifications.length}
+                                    </span>
+                                )}
+                            </button>
+                            {notifOpen && (
+                                <div
+                                    className="db-notif-popover"
+                                    role="menu"
+                                    onWheel={(e) => e.stopPropagation()}
+                                    style={{
+                                        position: 'absolute', top: 'calc(100% + 6px)', right: 0,
+                                        width: 320, maxHeight: 420, overflowY: 'auto', zIndex: 1000,
+                                        background: 'var(--surface, #fff)', color: 'var(--text, #111)',
+                                        border: '1px solid var(--border, rgba(0,0,0,0.12))',
+                                        borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.18)',
+                                        padding: 8,
+                                    }}
+                                >
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '4px 8px 8px', borderBottom: '1px solid var(--border, rgba(0,0,0,0.08))',
+                                    }}>
+                                        <strong style={{ fontSize: 13 }}>{t('Notifications')}</strong>
+                                        {notifications.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setNotifications([])}
+                                                style={{
+                                                    background: 'none', border: 'none', cursor: 'pointer',
+                                                    color: 'var(--text-muted, #666)', fontSize: 12,
+                                                }}
+                                            >
+                                                {t('Clear all')}
+                                            </button>
+                                        )}
+                                    </div>
+                                    {notifications.length === 0 ? (
+                                        <div style={{ padding: '18px 8px', textAlign: 'center', color: 'var(--text-muted, #888)', fontSize: 13 }}>
+                                            {t('No new notifications')}
+                                        </div>
+                                    ) : (
+                                        notifications.map((n) => (
+                                            <div
+                                                key={`${n.mailbox}:${n.id}`}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', gap: 4,
+                                                    borderRadius: 6,
+                                                }}
+                                                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover, rgba(0,0,0,0.05))' }}
+                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'none' }}
+                                            >
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
+                                                    onClick={() => {
+                                                        setNotifOpen(false)
+                                                        setNotifications((prev) => prev.filter((x) => x.id !== n.id))
+                                                        setActiveSection('mail')
+                                                        setSelectedFolder(n.mailbox || 'INBOX')
+                                                        openMailRef.current?.({ ...n, mailbox: n.mailbox || 'INBOX' })
+                                                    }}
+                                                    style={{
+                                                        flex: 1, minWidth: 0, textAlign: 'left',
+                                                        background: 'none', border: 'none', cursor: 'pointer',
+                                                        padding: '8px', borderRadius: 6,
+                                                    }}
+                                                >
+                                                    <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                        {(n.name || n.address || t('New message'))}
+                                                    </div>
+                                                    <div style={{ fontSize: 12, color: 'var(--text-muted, #666)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                        {n.subject || t('(no subject)')}
+                                                    </div>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    aria-label={t('Dismiss')}
+                                                    title={t('Dismiss')}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        setNotifications((prev) => prev.filter((x) => x.id !== n.id))
+                                                    }}
+                                                    style={{
+                                                        flex: '0 0 auto', width: 24, height: 24, marginRight: 4,
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        background: 'none', border: 'none', cursor: 'pointer',
+                                                        color: 'var(--text-muted, #888)', fontSize: 16, lineHeight: 1,
+                                                        borderRadius: 4,
+                                                    }}
+                                                >
+                                                    ×
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                     <div className="db-navbar-right__bottom">
                         <div className="db-account-wrapper" ref={accountWrapperRef}>

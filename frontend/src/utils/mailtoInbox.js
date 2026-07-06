@@ -58,6 +58,14 @@ export async function initMailtoInbox() {
   }
 }
 
+// Request a fresh compose window from anywhere (e.g. the tray "New Mail"
+// action). Routes through the same queue as mailto links, so if no consumer is
+// mounted yet (the user is on a non-mail section) the request is buffered and
+// drained once the mail UI subscribes.
+export function requestNewCompose(draft = {}) {
+  dispatch({ to: '', cc: '', bcc: '', subject: '', plainBody: '', ...draft })
+}
+
 // Subscribe to incoming mailto drafts. Immediately flushes any queued drafts
 // that arrived before a subscriber was present. Returns an unsubscribe fn.
 export function subscribeMailto(callback) {
