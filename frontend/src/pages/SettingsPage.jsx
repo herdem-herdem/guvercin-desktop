@@ -22,13 +22,17 @@ import {
     getStoredThemePreference,
     setStoredThemePreference,
 } from '../theme/themeManager.js'
-import { 
-    getLinkClickBehavior, 
+import {
+    getLinkClickBehavior,
     setLinkClickBehavior,
     getAllDomainLinkBehaviors,
     setDomainLinkBehavior,
     removeDomainLinkBehavior
 } from '../utils/externalLinks.js'
+import {
+    getComposeSettings,
+    saveComposeSettings,
+} from '../utils/composeSettings.js'
 
 /** GET /api/account/:id/settings uses camelCase (AccountSettingsResponse). */
 function parseSavedOrderFromSettings(setData, camelKey, snakeKey) {
@@ -119,6 +123,7 @@ const CATEGORIES = [
         id: 'email',
         label: 'Email',
         children: [
+            { id: 'compose', label: 'Compose & Send', parentId: 'email' },
             { id: 'offline', label: 'Offline', parentId: 'email' },
             { id: 'imap', label: 'IMAP', parentId: 'email' },
             { id: 'smtp', label: 'SMTP', parentId: 'email' },
@@ -142,6 +147,7 @@ const PANEL_SEARCH_INDEX = {
     layout: 'layout drag drop sidebar toolbar tabs top bottom left right',
     toolbar: 'toolbar ribbon submenu icon text button style compact large vertical appearance',
     mailbox_label_list: 'sidebar mail counts unread total both none mailbox label list order reorder arrows folders',
+    compose: 'compose send signature html font size plain rich text format undo send delay autosave draft interval reply quote top bottom position cc myself self writing',
     offline: 'offline sync download folders labels cache attachments policy days count enable email caching',
     imap: 'imap incoming mail server port password ssl starttls encryption connection',
     smtp: 'smtp outgoing mail server port password ssl starttls',
@@ -2813,6 +2819,176 @@ function LabelOrderSettings({ accountId, onRefreshAccount, searchQuery = '' }) {
     )
 }
 /* ─── Content renderer ──────────────────────────────────────────── */
+/* ─── Compose & Send settings panel ─────────────────────────────── */
+function ComposeSettings({ accountId, searchQuery = '' }) {
+    const [settings, setSettings] = useState(() => getComposeSettings(accountId))
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState(null)
+    const baselineRef = useRef(null)
+
+    useEffect(() => {
+        const loaded = getComposeSettings(accountId)
+        baselineRef.current = loaded
+        setSettings(loaded)
+        setMessage(null)
+    }, [accountId])
+
+    const settingsRef = useRef(settings)
+    useLayoutEffect(() => {
+        settingsRef.current = settings
+    }, [settings])
+
+    const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }))
+
+    const persist = useCallback(async () => {
+        setSaving(true)
+        setMessage(null)
+        try {
+            const saved = saveComposeSettings(accountId, settingsRef.current)
+            baselineRef.current = saved
+            setSettings(saved)
+            setMessage({ type: 'success', text: '✅ Compose preferences saved.' })
+        } catch {
+            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [accountId])
+
+    const dirty = baselineRef.current != null
+        && JSON.stringify(settings) !== JSON.stringify(baselineRef.current)
+
+    useSettingsDraft('compose-settings', 'Compose & Send', {
+        isDirty: dirty,
+        save: persist,
+        revert: () => {
+            if (baselineRef.current != null) setSettings(baselineRef.current)
+        },
+    })
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Compose & Send" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Preferences applied to new messages, replies and forwards." query={searchQuery} />
+            </p>
+
+            {/* Default format */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 8 }}>
+                <HighlightMatch text="Default format" query={searchQuery} />
+            </h4>
+            <div className="sp-radio-group sp-radio-group--stacked">
+                <label className="sp-radio-label">
+                    <input type="radio" name="composeFormat" checked={settings.defaultFormat === 'plain'} onChange={() => update({ defaultFormat: 'plain' })} />
+                    <HighlightMatch text="Plain text" query={searchQuery} />
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="composeFormat" checked={settings.defaultFormat === 'html'} onChange={() => update({ defaultFormat: 'html' })} />
+                    <HighlightMatch text="Rich text (HTML)" query={searchQuery} />
+                </label>
+            </div>
+
+            {/* Default font (HTML) */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 20 }}>
+                <HighlightMatch text="Default font (HTML messages)" query={searchQuery} />
+            </h4>
+            <div className="sp-form-field" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span className="sp-section__hint">Font family</span>
+                    <input
+                        type="text"
+                        className="sp-font-select"
+                        placeholder="e.g. Arial (default)"
+                        value={settings.fontFamily}
+                        onChange={(e) => update({ fontFamily: e.target.value })}
+                    />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span className="sp-section__hint">Font size</span>
+                    <input
+                        type="text"
+                        className="sp-font-select"
+                        placeholder="e.g. 14px (default)"
+                        value={settings.fontSize}
+                        onChange={(e) => update({ fontSize: e.target.value })}
+                    />
+                </label>
+            </div>
+
+            {/* Signature */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 20 }}>
+                <HighlightMatch text="Signature" query={searchQuery} />
+            </h4>
+            <p className="sp-section__hint">HTML is supported. Added to new messages, replies and forwards.</p>
+            <textarea
+                className="sp-font-select"
+                style={{ width: '100%', minHeight: 120, fontFamily: 'monospace', resize: 'vertical' }}
+                placeholder="<p>Best regards,<br>Your Name</p>"
+                value={settings.signature}
+                onChange={(e) => update({ signature: e.target.value })}
+            />
+
+            {/* Reply quote position */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 20 }}>
+                <HighlightMatch text="When replying" query={searchQuery} />
+            </h4>
+            <div className="sp-radio-group sp-radio-group--stacked">
+                <label className="sp-radio-label">
+                    <input type="radio" name="quotePosition" checked={settings.replyQuotePosition === 'top'} onChange={() => update({ replyQuotePosition: 'top' })} />
+                    <HighlightMatch text="Type above the quoted text (top)" query={searchQuery} />
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="quotePosition" checked={settings.replyQuotePosition === 'bottom'} onChange={() => update({ replyQuotePosition: 'bottom' })} />
+                    <HighlightMatch text="Type below the quoted text (bottom)" query={searchQuery} />
+                </label>
+            </div>
+            <label className="sp-radio-label" style={{ marginTop: 12 }}>
+                <input type="checkbox" checked={settings.autoCcSelf} onChange={(e) => update({ autoCcSelf: e.target.checked })} />
+                <HighlightMatch text="Always Cc myself" query={searchQuery} />
+            </label>
+
+            {/* Undo send + autosave */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 20 }}>
+                <HighlightMatch text="Sending & drafts" query={searchQuery} />
+            </h4>
+            <div className="sp-form-field" style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span className="sp-section__hint">Undo send window (seconds, 0 = off)</span>
+                    <input
+                        type="number"
+                        min={0}
+                        max={60}
+                        className="sp-font-select"
+                        value={settings.undoSendSeconds}
+                        onChange={(e) => update({ undoSendSeconds: e.target.value })}
+                    />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span className="sp-section__hint">Auto-save drafts every (seconds, 0 = off)</span>
+                    <input
+                        type="number"
+                        min={0}
+                        max={600}
+                        className="sp-font-select"
+                        value={settings.autosaveSeconds}
+                        onChange={(e) => update({ autosaveSeconds: e.target.value })}
+                    />
+                </label>
+            </div>
+
+            {message && (
+                <div className={`sp-form-message sp-form-message--${message.type}`} style={{ marginTop: 16 }}>
+                    {message.text}
+                </div>
+            )}
+            <button type="button" className="sp-save-btn" style={{ marginTop: 20 }} onClick={() => void persist().catch(() => {})} disabled={saving || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+            </button>
+        </div>
+    )
+}
+
 function renderContent(selection, accountId, onClose, onRefreshAccount, searchQuery = '', appearance) {
     if (!selection) return null
 
@@ -2895,6 +3071,7 @@ function renderSinglePanel(id, accountId, onClose, onRefreshAccount, searchQuery
         )
         case 'imap': return <ServerSettings accountId={accountId} type="imap" key={`imap-${accountId}`} searchQuery={q} />
         case 'smtp': return <ServerSettings accountId={accountId} type="smtp" key={`smtp-${accountId}`} searchQuery={q} />
+        case 'compose': return <ComposeSettings accountId={accountId} key={`compose-${accountId}`} searchQuery={q} />
         case 'offline': return <OfflineSettings accountId={accountId} key={`offline-${accountId}`} searchQuery={q} />
         case 'links': return <LinksSettings key="links" searchQuery={q} />
         case 'blocked': return <BlockedSendersSettings accountId={accountId} key={`blocked-${accountId}`} searchQuery={q} />

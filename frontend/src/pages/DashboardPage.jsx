@@ -23,6 +23,12 @@ import {
     parseComposeRecipients,
 } from '../utils/compose.js'
 import { queueComposeSend } from '../utils/composeSend.js'
+import {
+    getComposeSettings,
+    buildNewMailFields,
+    buildReplyPlainBody,
+    autoCcRecipients,
+} from '../utils/composeSettings.js'
 import { buildThreads } from '../utils/threading.js'
 import ExternalLinkPrompt from '../components/ExternalLinkPrompt.jsx'
 import {
@@ -2197,10 +2203,9 @@ const DashboardPage = () => {
         setActionNotices((prev) => prev.filter((notice) => notice.id !== noticeId))
     }, [])
 
-    const enqueueUndoableAction = useCallback(({ label, apply, undo, commit, variant = 'default', commitLabel = 'Apply now', undoLabel = 'Undo' }) => {
+    const enqueueUndoableAction = useCallback(({ label, apply, undo, commit, variant = 'default', commitLabel = 'Apply now', undoLabel = 'Undo', durationMs = 10_000 }) => {
         nextNoticeIdRef.current += 1
         const id = nextNoticeIdRef.current
-        const durationMs = 10_000
         const expiresAt = Date.now() + durationMs
 
         apply()
@@ -3973,16 +3978,27 @@ function MailSection({
     useEffect(() => {
         if (!accountId) return undefined
         const unsubscribe = subscribeMailto((mailtoDraft) => {
+            const prefs = getComposeSettings(accountId)
+            const ccList = dedupeEmails([
+                ...parseComposeRecipients(mailtoDraft.cc || ''),
+                ...autoCcRecipients(prefs, accountEmail),
+            ])
+            const providedBody = mailtoDraft.plainBody || ''
+            const newFields = buildNewMailFields(prefs)
+            // Keep the mailto-provided body; append the signature (plain only).
+            const plainBody = providedBody
+                ? `${providedBody}${newFields.plainBody}`
+                : newFields.plainBody
             openInlineCompose({
                 source: 'new',
                 draft: {
                     from: accountEmail || '',
                     to: mailtoDraft.to || '',
-                    cc: mailtoDraft.cc || '',
+                    cc: ccList.join(', '),
                     bcc: mailtoDraft.bcc || '',
                     subject: mailtoDraft.subject || '',
-                    plainBody: mailtoDraft.plainBody || '',
-                    showCc: Boolean(mailtoDraft.cc),
+                    plainBody,
+                    showCc: ccList.length > 0,
                     showBcc: Boolean(mailtoDraft.bcc),
                 },
             }, { preserveExisting: false })
@@ -4043,9 +4059,27 @@ function MailSection({
             window.alert('Please add at least one recipient.')
             return false
         }
+        const undoSeconds = getComposeSettings(accountId).undoSendSeconds
+
+        // Undo window disabled: close the surface and send right away.
+        if (undoSeconds <= 0) {
+            closeComposeTarget(target)
+            onAfterClose?.()
+            void (async () => {
+                const sentOk = await sendComposedMail(draft)
+                if (!sentOk) {
+                    restoreComposeTarget(target, draft)
+                    return
+                }
+                await onCommitted?.()
+            })()
+            return true
+        }
+
         enqueueUndoableAction({
-            label: 'Mail will be sent in 10 seconds',
+            label: `Mail will be sent in ${undoSeconds} second${undoSeconds === 1 ? '' : 's'}`,
             variant: 'warning',
+            durationMs: undoSeconds * 1000,
             commitLabel: 'Send now',
             undoLabel: 'Undo',
             apply: () => {
@@ -4066,7 +4100,7 @@ function MailSection({
             },
         })
         return true
-    }, [accountEmail, closeComposeTarget, enqueueUndoableAction, restoreComposeTarget, sendComposedMail])
+    }, [accountEmail, accountId, closeComposeTarget, enqueueUndoableAction, restoreComposeTarget, sendComposedMail])
 
     const requestComposeExit = useCallback(({ target, draft, intent = 'discard', pendingMail = null, baselineDraft = null }) => {
         const hasMeaningfulChanges = baselineDraft
@@ -5711,7 +5745,18 @@ function MailSection({
     )
 
     const handleNewMail = async () => {
-        openInlineCompose({ source: 'new', draft: createEmptyComposeDraft() })
+        const prefs = getComposeSettings(accountId)
+        const selfEmail = email || accountEmailLabel
+        const ccSelf = autoCcRecipients(prefs, selfEmail)
+        openInlineCompose({
+            source: 'new',
+            draft: createEmptyComposeDraft({
+                from: accountEmail || '',
+                ...buildNewMailFields(prefs),
+                ccRecipients: ccSelf,
+                showCc: ccSelf.length > 0,
+            }),
+        })
     }
 
     const handleDeleteAction = async () => {
@@ -5881,12 +5926,16 @@ function MailSection({
             headers.push({ name: 'References', value: refs ? `${refs} ${seed.message_id.trim()}` : seed.message_id.trim() })
         }
 
+        const prefs = getComposeSettings(accountId)
+        const baseCc = replyMode === 'reply_all' ? replyAllCc : []
+        const ccList = dedupeEmails([...baseCc, ...autoCcRecipients(prefs, selfEmail)])
+
         composeDraft({
             to: replyMode === 'reply_all' ? replyAllTo.join(', ') : replyTo,
-            cc: replyMode === 'reply_all' ? replyAllCc.join(', ') : '',
-            showCc: replyMode === 'reply_all' && replyAllCc.length > 0,
+            cc: ccList.join(', '),
+            showCc: ccList.length > 0,
             subject: prefixSubject('Re:', content?.subject || mail.subject),
-            plainBody: `\n\n${buildQuotedMailBlock(mail, content)}`,
+            plainBody: buildReplyPlainBody(buildQuotedMailBlock(mail, content), prefs),
             format: 'plain',
             htmlBody: '',
             extraHeaders: headers,
@@ -5914,13 +5963,16 @@ function MailSection({
             date: mail?.date || '',
         }]
         const defaultOptions = { subjectPrefix: 'Fwd:', forwardStyle: 'copy' }
+        const prefs = getComposeSettings(accountId)
+        const ccSelf = autoCcRecipients(prefs, email || accountEmailLabel)
 
         composeDraft({
             to: '',
-            cc: '',
+            cc: ccSelf.join(', '),
             bcc: '',
+            showCc: ccSelf.length > 0,
             subject: '',
-            plainBody: '',
+            plainBody: buildReplyPlainBody('', prefs),
             htmlBody: '',
             format: 'plain',
             attachments: [],
@@ -6140,6 +6192,44 @@ function MailSection({
                 : prev
         ))
     }, [setInlineComposeSession])
+
+    // Keep the latest inline compose session available to the auto-save timer
+    // without restarting the interval on every keystroke.
+    const inlineComposeSessionRef = useRef(null)
+    inlineComposeSessionRef.current = inlineComposeSession
+
+    // Periodically auto-save the active inline draft when enabled in settings.
+    useEffect(() => {
+        const seconds = getComposeSettings(accountId).autosaveSeconds
+        if (!seconds || seconds <= 0) return undefined
+        if (!inlineComposeSession) return undefined
+
+        const sessionId = inlineComposeSession.id
+        let lastSavedDraft = inlineComposeSession.baselineDraft || null
+
+        const timer = window.setInterval(async () => {
+            const session = inlineComposeSessionRef.current
+            if (!session || session.id !== sessionId) return
+            const draft = session.draft
+            const changedFromBaseline = session.baselineDraft
+                ? isComposeDraftModified(draft, session.baselineDraft)
+                : isComposeDraftDirty(draft)
+            if (!changedFromBaseline) return
+            if (lastSavedDraft && !isComposeDraftModified(draft, lastSavedDraft)) return
+            try {
+                const draftId = await saveComposeDraft(draft)
+                lastSavedDraft = draft
+                if (draftId && !draft.draftId) {
+                    updateInlineComposeDraft((prev) => ({ ...prev, draftId }))
+                }
+            } catch (error) {
+                console.error('Auto-save draft failed:', error)
+            }
+        }, seconds * 1000)
+
+        return () => window.clearInterval(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [accountId, inlineComposeSession?.id])
 
     const handleInlineComposeSend = async (draft) => {
         if (!inlineComposeSession) return
