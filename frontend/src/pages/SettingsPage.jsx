@@ -33,6 +33,10 @@ import {
     getComposeSettings,
     saveComposeSettings,
 } from '../utils/composeSettings.js'
+import {
+    getNotificationSettings,
+    saveNotificationSettings,
+} from '../utils/notificationSettings.js'
 
 /** GET /api/account/:id/settings uses camelCase (AccountSettingsResponse). */
 function parseSavedOrderFromSettings(setData, camelKey, snakeKey) {
@@ -124,6 +128,7 @@ const CATEGORIES = [
         label: 'Email',
         children: [
             { id: 'compose', label: 'Compose & Send', parentId: 'email' },
+            { id: 'notifications', label: 'Notifications', parentId: 'email' },
             { id: 'offline', label: 'Offline', parentId: 'email' },
             { id: 'imap', label: 'IMAP', parentId: 'email' },
             { id: 'smtp', label: 'SMTP', parentId: 'email' },
@@ -148,6 +153,7 @@ const PANEL_SEARCH_INDEX = {
     toolbar: 'toolbar ribbon submenu icon text button style compact large vertical appearance',
     mailbox_label_list: 'sidebar mail counts unread total both none mailbox label list order reorder arrows folders',
     compose: 'compose send signature html font size plain rich text format undo send delay autosave draft interval reply quote top bottom position cc myself self writing',
+    notifications: 'notifications notify native desktop alert sound mute silent preview show hide privacy do not disturb dnd quiet hours vip senders badge count unread total dock tray',
     offline: 'offline sync download folders labels cache attachments policy days count enable email caching',
     imap: 'imap incoming mail server port password ssl starttls encryption connection',
     smtp: 'smtp outgoing mail server port password ssl starttls',
@@ -2989,6 +2995,189 @@ function ComposeSettings({ accountId, searchQuery = '' }) {
     )
 }
 
+/* ─── Notifications settings panel ──────────────────────────────── */
+function NotificationSettings({ accountId, searchQuery = '' }) {
+    const [settings, setSettings] = useState(() => getNotificationSettings(accountId))
+    const [vipInput, setVipInput] = useState('')
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState(null)
+    const baselineRef = useRef(null)
+
+    useEffect(() => {
+        const loaded = getNotificationSettings(accountId)
+        baselineRef.current = loaded
+        setSettings(loaded)
+        setVipInput('')
+        setMessage(null)
+    }, [accountId])
+
+    const settingsRef = useRef(settings)
+    useLayoutEffect(() => {
+        settingsRef.current = settings
+    }, [settings])
+
+    const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }))
+
+    const addVip = () => {
+        const addr = vipInput.trim().toLowerCase()
+        if (!addr) return
+        setSettings((prev) => (
+            prev.vipSenders.includes(addr)
+                ? prev
+                : { ...prev, vipSenders: [...prev.vipSenders, addr] }
+        ))
+        setVipInput('')
+    }
+
+    const removeVip = (addr) => {
+        setSettings((prev) => ({ ...prev, vipSenders: prev.vipSenders.filter((a) => a !== addr) }))
+    }
+
+    const persist = useCallback(async () => {
+        setSaving(true)
+        setMessage(null)
+        try {
+            const saved = saveNotificationSettings(accountId, settingsRef.current)
+            baselineRef.current = saved
+            setSettings(saved)
+            setMessage({ type: 'success', text: '✅ Notification preferences saved.' })
+        } catch {
+            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [accountId])
+
+    const dirty = baselineRef.current != null
+        && JSON.stringify(settings) !== JSON.stringify(baselineRef.current)
+
+    useSettingsDraft('notification-settings', 'Notifications', {
+        isDirty: dirty,
+        save: persist,
+        revert: () => {
+            if (baselineRef.current != null) setSettings(baselineRef.current)
+        },
+    })
+
+    const disabled = !settings.enabled
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Notifications" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Control native desktop notifications for new mail and the app badge." query={searchQuery} />
+            </p>
+
+            <label className="sp-radio-label">
+                <input type="checkbox" checked={settings.enabled} onChange={(e) => update({ enabled: e.target.checked })} />
+                <HighlightMatch text="Enable desktop notifications" query={searchQuery} />
+            </label>
+
+            {/* Sound + preview */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 20, opacity: disabled ? 0.5 : 1 }}>
+                <HighlightMatch text="Alerts" query={searchQuery} />
+            </h4>
+            <label className="sp-radio-label" style={{ opacity: disabled ? 0.5 : 1 }}>
+                <input type="checkbox" disabled={disabled} checked={settings.soundMode === 'default'} onChange={(e) => update({ soundMode: e.target.checked ? 'default' : 'none' })} />
+                <HighlightMatch text="Play a sound" query={searchQuery} />
+            </label>
+            <label className="sp-radio-label" style={{ opacity: disabled ? 0.5 : 1 }}>
+                <input type="checkbox" disabled={disabled} checked={settings.showPreview} onChange={(e) => update({ showPreview: e.target.checked })} />
+                <HighlightMatch text="Show sender and subject in the notification" query={searchQuery} />
+            </label>
+
+            {/* Do Not Disturb */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 20, opacity: disabled ? 0.5 : 1 }}>
+                <HighlightMatch text="Do Not Disturb" query={searchQuery} />
+            </h4>
+            <label className="sp-radio-label" style={{ opacity: disabled ? 0.5 : 1 }}>
+                <input type="checkbox" disabled={disabled} checked={settings.dndEnabled} onChange={(e) => update({ dndEnabled: e.target.checked })} />
+                <HighlightMatch text="Silence notifications during quiet hours" query={searchQuery} />
+            </label>
+            <div className="sp-form-field" style={{ display: 'flex', gap: 24, flexWrap: 'wrap', opacity: (disabled || !settings.dndEnabled) ? 0.5 : 1 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span className="sp-section__hint">From</span>
+                    <input type="time" className="sp-font-select" disabled={disabled || !settings.dndEnabled} value={settings.quietStart} onChange={(e) => update({ quietStart: e.target.value })} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span className="sp-section__hint">To</span>
+                    <input type="time" className="sp-font-select" disabled={disabled || !settings.dndEnabled} value={settings.quietEnd} onChange={(e) => update({ quietEnd: e.target.value })} />
+                </label>
+            </div>
+
+            {/* Sender filter */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 20, opacity: disabled ? 0.5 : 1 }}>
+                <HighlightMatch text="Which senders" query={searchQuery} />
+            </h4>
+            <div className="sp-radio-group sp-radio-group--stacked" style={{ opacity: disabled ? 0.5 : 1 }}>
+                <label className="sp-radio-label">
+                    <input type="radio" name="senderMode" disabled={disabled} checked={settings.senderMode === 'all'} onChange={() => update({ senderMode: 'all' })} />
+                    <HighlightMatch text="Notify for all new mail" query={searchQuery} />
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="senderMode" disabled={disabled} checked={settings.senderMode === 'vip'} onChange={() => update({ senderMode: 'vip' })} />
+                    <HighlightMatch text="Only from VIP senders" query={searchQuery} />
+                </label>
+            </div>
+            {settings.senderMode === 'vip' && !disabled && (
+                <div style={{ marginTop: 12 }}>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                            type="email"
+                            className="sp-font-select"
+                            style={{ flex: 1 }}
+                            placeholder="name@example.com"
+                            value={vipInput}
+                            onChange={(e) => setVipInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addVip() } }}
+                        />
+                        <button type="button" className="sp-save-btn" onClick={addVip} disabled={!vipInput.trim()}>Add</button>
+                    </div>
+                    {settings.vipSenders.length > 0 && (
+                        <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {settings.vipSenders.map((addr) => (
+                                <li key={addr} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                    <span>{addr}</span>
+                                    <button type="button" className="sp-save-btn" style={{ padding: '4px 10px' }} onClick={() => removeVip(addr)}>Remove</button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            )}
+
+            {/* Badge */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 20 }}>
+                <HighlightMatch text="App badge" query={searchQuery} />
+            </h4>
+            <div className="sp-radio-group sp-radio-group--stacked">
+                <label className="sp-radio-label">
+                    <input type="radio" name="badgeMode" checked={settings.badgeMode === 'unread'} onChange={() => update({ badgeMode: 'unread' })} />
+                    <HighlightMatch text="Show unread count" query={searchQuery} />
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="badgeMode" checked={settings.badgeMode === 'total'} onChange={() => update({ badgeMode: 'total' })} />
+                    <HighlightMatch text="Show total count" query={searchQuery} />
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="badgeMode" checked={settings.badgeMode === 'off'} onChange={() => update({ badgeMode: 'off' })} />
+                    <HighlightMatch text="Hide the badge" query={searchQuery} />
+                </label>
+            </div>
+
+            {message && (
+                <div className={`sp-form-message sp-form-message--${message.type}`} style={{ marginTop: 16 }}>
+                    {message.text}
+                </div>
+            )}
+            <button type="button" className="sp-save-btn" style={{ marginTop: 20 }} onClick={() => void persist().catch(() => {})} disabled={saving || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+            </button>
+        </div>
+    )
+}
+
 function renderContent(selection, accountId, onClose, onRefreshAccount, searchQuery = '', appearance) {
     if (!selection) return null
 
@@ -3072,6 +3261,7 @@ function renderSinglePanel(id, accountId, onClose, onRefreshAccount, searchQuery
         case 'imap': return <ServerSettings accountId={accountId} type="imap" key={`imap-${accountId}`} searchQuery={q} />
         case 'smtp': return <ServerSettings accountId={accountId} type="smtp" key={`smtp-${accountId}`} searchQuery={q} />
         case 'compose': return <ComposeSettings accountId={accountId} key={`compose-${accountId}`} searchQuery={q} />
+        case 'notifications': return <NotificationSettings accountId={accountId} key={`notifications-${accountId}`} searchQuery={q} />
         case 'offline': return <OfflineSettings accountId={accountId} key={`offline-${accountId}`} searchQuery={q} />
         case 'links': return <LinksSettings key="links" searchQuery={q} />
         case 'blocked': return <BlockedSendersSettings accountId={accountId} key={`blocked-${accountId}`} searchQuery={q} />

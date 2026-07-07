@@ -51,6 +51,7 @@ import { clearAccountSession } from '../utils/accountStorage.js'
 import { subscribeMailto, requestNewCompose } from '../utils/mailtoInbox.js'
 import { subscribeEml } from '../utils/emlInbox.js'
 import { notifyNewMail, setUnreadBadge, subscribeNotificationOpen, dismissNotificationForMail } from '../utils/notifications.js'
+import { getNotificationSettings, shouldNotifyForMail } from '../utils/notificationSettings.js'
 import {
     isDefaultMailClient,
     setAsDefaultMailClient,
@@ -1904,13 +1905,19 @@ const DashboardPage = () => {
                     return
                 }
 
+                const notifPrefs = getNotificationSettings(accountId)
                 const fresh = []
                 for (const m of mails) {
                     if (m.seen === true) continue
                     if (prevIds.has(m.id)) continue
                     const entry = { ...m, mailbox: 'INBOX', receivedAt: Date.now() }
                     fresh.push(entry)
-                    notifyNewMail(entry)
+                    if (shouldNotifyForMail(notifPrefs, entry)) {
+                        notifyNewMail(entry, {
+                            showPreview: notifPrefs.showPreview,
+                            sound: notifPrefs.soundMode !== 'none',
+                        })
+                    }
                 }
                 if (fresh.length > 0) {
                     // Newest first; keep a bounded history in the notification center.
@@ -1935,16 +1942,22 @@ const DashboardPage = () => {
     // Keep the OS unread badge (macOS dock / Linux launcher) and tray tooltip in
     // sync with the INBOX unread count.
     useEffect(() => {
+        const badgeMode = getNotificationSettings(accountId).badgeMode
+        if (badgeMode === 'off') {
+            setUnreadBadge(0)
+            return
+        }
+        const field = badgeMode === 'total' ? 'total' : 'unread'
         const counts = mailboxCounts || {}
         const inboxKey = Object.keys(counts).find((k) => k.toLowerCase() === 'inbox')
-        let unread = 0
+        let count = 0
         if (inboxKey) {
-            unread = Number(counts[inboxKey]?.unread) || 0
+            count = Number(counts[inboxKey]?.[field]) || 0
         } else {
-            for (const v of Object.values(counts)) unread += Number(v?.unread) || 0
+            for (const v of Object.values(counts)) count += Number(v?.[field]) || 0
         }
-        setUnreadBadge(unread)
-    }, [mailboxCounts])
+        setUnreadBadge(count)
+    }, [mailboxCounts, accountId])
 
     // Tray menu actions (New Mail / Settings) and mail-notification clicks.
     // Handled here in DashboardPage so they work from any section: "New Mail"

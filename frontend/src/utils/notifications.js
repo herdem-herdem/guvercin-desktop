@@ -85,7 +85,12 @@ export async function initNotifications() {
 
 // Posts a native notification for a newly-arrived mail. No-op when the window
 // is currently focused (the user is already here) or permission was denied.
-export async function notifyNewMail(mail) {
+//
+// options: { showPreview?: boolean, sound?: boolean }
+//   showPreview (default true) — show the sender/subject; when false a generic
+//     message is shown so the content stays private on the lock screen.
+//   sound (default true) — play the OS notification sound.
+export async function notifyNewMail(mail, options = {}) {
   if (!isTauri() || !mail || !permissionGranted) return
 
   try {
@@ -98,12 +103,18 @@ export async function notifyNewMail(mail) {
   pendingMail = mail
   armed = true
 
+  const showPreview = options.showPreview !== false
+  const withSound = options.sound !== false
+
   try {
     const { sendNotification } = await import('@tauri-apps/plugin-notification')
     const sender = (mail.from_name || mail.name || mail.from || mail.address || '')
       .toString().trim() || 'New message'
     const subject = (mail.subject || '').toString().trim() || '(no subject)'
-    const notification = { title: sender, body: subject }
+    const notification = showPreview
+      ? { title: sender, body: subject }
+      : { title: 'Guvercin', body: 'You have new mail' }
+    if (withSound) notification.sound = 'default'
     if (mail.id != null) notification.id = notificationIdForMail(mail.id)
     sendNotification(notification)
   } catch (error) {
