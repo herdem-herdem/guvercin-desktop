@@ -20,6 +20,22 @@ let pendingMail = null
 // True once a notification has been posted while the window was unfocused.
 let armed = false
 
+// The Tauri notification plugin identifies active notifications by a numeric id.
+// Mail ids can be strings, so we map each mail id to a generated numeric id and
+// remember it, so we can remove that exact notification once the mail is opened.
+const mailIdToNotificationId = new Map()
+let nextNotificationId = 1
+
+function notificationIdForMail(mailId) {
+  const key = String(mailId)
+  let id = mailIdToNotificationId.get(key)
+  if (id == null) {
+    id = nextNotificationId++
+    mailIdToNotificationId.set(key, id)
+  }
+  return id
+}
+
 function isTauri() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
@@ -87,9 +103,33 @@ export async function notifyNewMail(mail) {
     const sender = (mail.from_name || mail.name || mail.from || mail.address || '')
       .toString().trim() || 'New message'
     const subject = (mail.subject || '').toString().trim() || '(no subject)'
-    sendNotification({ title: sender, body: subject })
+    const notification = { title: sender, body: subject }
+    if (mail.id != null) notification.id = notificationIdForMail(mail.id)
+    sendNotification(notification)
   } catch (error) {
     console.error('Failed to send notification:', error)
+  }
+}
+
+// Removes the OS notification previously posted for a mail, if any. Called when
+// the user opens/reads a mail so its notification no longer lingers in the
+// notification center. No-op when we never notified for this mail.
+export async function dismissNotificationForMail(mailId) {
+  if (!isTauri() || mailId == null) return
+  const key = String(mailId)
+  const id = mailIdToNotificationId.get(key)
+  if (id == null) return
+  mailIdToNotificationId.delete(key)
+  // If the mail being opened is the one awaiting a click, drop the pending state.
+  if (pendingMail && String(pendingMail.id) === key) {
+    pendingMail = null
+    armed = false
+  }
+  try {
+    const { removeActive } = await import('@tauri-apps/plugin-notification')
+    await removeActive([{ id }])
+  } catch (error) {
+    console.error('Failed to remove notification:', error)
   }
 }
 

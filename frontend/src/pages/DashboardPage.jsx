@@ -44,7 +44,7 @@ import {
 import { clearAccountSession } from '../utils/accountStorage.js'
 import { subscribeMailto, requestNewCompose } from '../utils/mailtoInbox.js'
 import { subscribeEml } from '../utils/emlInbox.js'
-import { notifyNewMail, setUnreadBadge, subscribeNotificationOpen } from '../utils/notifications.js'
+import { notifyNewMail, setUnreadBadge, subscribeNotificationOpen, dismissNotificationForMail } from '../utils/notifications.js'
 import {
     isDefaultMailClient,
     setAsDefaultMailClient,
@@ -2133,6 +2133,7 @@ const DashboardPage = () => {
     )
 
     const openMail = async (mail) => {
+        if (mail?.id != null) dismissNotificationForMail(mail.id)
         setIsMailFullscreen(false)
         setSelectedMail(mail)
         setMailContent(null)
@@ -2322,6 +2323,10 @@ const DashboardPage = () => {
             ids.includes(mail.id) ? { ...mail, seen } : mail
         )))
         setSelectedMail((prev) => (prev && ids.includes(prev.id) ? { ...prev, seen } : prev))
+        if (seen) {
+            // Drop any notification-center entries for mails that were just read.
+            setNotifications((prev) => prev.filter((n) => !ids.includes(n.id)))
+        }
         try {
             const sourceFolder = selectedFolder || 'INBOX'
             const mailboxById = new Map(
@@ -5002,6 +5007,7 @@ function MailSection({
     const loadingTabCountRef = useRef(0)
 
     const openMailInTab = async (mail, existingContent) => {
+        if (mail?.id != null) dismissNotificationForMail(mail.id)
         const mailbox = mail?.mailbox || selectedFolder || 'INBOX'
         const isDraftMailbox = folderInfo(mailbox).label === 'Drafts'
         if (isDraftMailbox) {
