@@ -31,7 +31,8 @@
     "deep-link": {
       "desktop": {
         "schemes": [
-          "mailto"
+          "mailto",
+          "guvercin"
         ]
       }
     }
@@ -40,6 +41,7 @@
     "active": true,
     "targets": [
       "app",
+      "nsis",
       "dmg",
       "deb",
       "rpm"

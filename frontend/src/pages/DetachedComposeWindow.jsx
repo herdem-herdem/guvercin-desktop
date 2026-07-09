@@ -18,6 +18,24 @@ function safeParse(json) {
     }
 }
 
+// The context-menu ("Send with Guvercin") attach flow opens this window with no
+// account context — the Rust side doesn't know which account is active. All
+// windows share the same origin, so the active account persisted in
+// localStorage by the main window is readable here.
+function getSavedAccount() {
+    let id = null
+    let email = ''
+    try { id = localStorage.getItem('current_account_id') } catch { /* ignore */ }
+    try { email = localStorage.getItem('saved_email') || '' } catch { /* ignore */ }
+    if (!email) {
+        try {
+            const form = JSON.parse(localStorage.getItem('saved_account_form') || 'null')
+            email = form?.email || ''
+        } catch { /* ignore */ }
+    }
+    return { id: id || null, email }
+}
+
 function getDetachedLabelHint() {
     try {
         const hint = typeof window !== 'undefined' ? window.__GUV_DETACHED__ : null
@@ -92,8 +110,9 @@ export default function DetachedComposeWindow({ initialLabel = '' } = {}) {
         }
     }, [])
 
-    const accountId = data?.accountId
-    const accountEmail = data?.accountEmail || ''
+    const savedAccount = getSavedAccount()
+    const accountId = data?.accountId ?? savedAccount.id
+    const accountEmail = data?.accountEmail || savedAccount.email
 
     useEffect(() => {
         document.body.style.padding = '0'
@@ -150,9 +169,19 @@ export default function DetachedComposeWindow({ initialLabel = '' } = {}) {
     }, [windowLabel])
 
     useEffect(() => {
+        // Merge any top-level `attachments` (the context-menu attach flow puts the
+        // file there rather than inside a draft) into the draft so it shows up and
+        // gets sent. In-app compose passes a full `draft` and no top-level list.
+        const draftSource = data?.draft ? { ...data.draft } : {}
+        if (Array.isArray(data?.attachments) && data.attachments.length > 0) {
+            draftSource.attachments = [
+                ...(Array.isArray(draftSource.attachments) ? draftSource.attachments : []),
+                ...data.attachments,
+            ]
+        }
         const nextBaseline = normalizeComposeDraft(data?.baselineDraft ?? data?.draft)
         setBaselineDraft(nextBaseline)
-        setDraft(normalizeComposeDraft(data?.draft))
+        setDraft(normalizeComposeDraft(draftSource))
     }, [data])
 
     useEffect(() => () => {

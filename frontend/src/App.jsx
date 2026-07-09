@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next'
 import { hydrateAccountSession } from './utils/accountStorage.js'
 import { initMailtoInbox } from './utils/mailtoInbox.js'
 import { initEmlInbox } from './utils/emlInbox.js'
+import { initAttachmentInbox } from './utils/attachmentInbox.js'
 import { initNotifications } from './utils/notifications.js'
 import ThemePage from './pages/ThemePage.jsx'
 import SettingsPage from './pages/SettingsPage.jsx'
@@ -49,13 +50,14 @@ function App() {
     || windowLabel.startsWith('compose-')
   )
 
-  // Start listening for `mailto:` deep links as early as possible so links
-  // received during a cold start are queued until the dashboard can handle them.
+  // Start listening for `mailto:` and file attachment deep links as early as possible
+  // so links received during a cold start are queued until the dashboard can handle them.
   // Only the main window installs the listener to avoid duplicate handling.
   useEffect(() => {
     if (isMailWindow || isComposeWindow) return
     initMailtoInbox()
     initEmlInbox()
+    initAttachmentInbox()
     initNotifications()
   }, [isMailWindow, isComposeWindow])
 

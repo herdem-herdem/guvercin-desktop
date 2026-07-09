@@ -5758,7 +5758,7 @@ function MailSection({
 
     const handleNewMail = async () => {
         const prefs = getComposeSettings(accountId)
-        const selfEmail = email || accountEmailLabel
+        const selfEmail = accountEmail
         const ccSelf = autoCcRecipients(prefs, selfEmail)
         openInlineCompose({
             source: 'new',
@@ -5918,7 +5918,7 @@ function MailSection({
         const content = await loadMailContentForDraft(mail)
         const seed = await fetchReplySeed(mail)
 
-        const selfEmail = email || accountEmailLabel
+        const selfEmail = accountEmail
         const replyToCandidates = parseComposeRecipients(seed?.reply_to || '')
         const replyToFallback = content?.from_address || mail.address || ''
         const replyTo = replyToCandidates[0] || replyToFallback
@@ -5976,7 +5976,7 @@ function MailSection({
         }]
         const defaultOptions = { subjectPrefix: 'Fwd:', forwardStyle: 'copy' }
         const prefs = getComposeSettings(accountId)
-        const ccSelf = autoCcRecipients(prefs, email || accountEmailLabel)
+        const ccSelf = autoCcRecipients(prefs, accountEmail)
 
         composeDraft({
             to: '',

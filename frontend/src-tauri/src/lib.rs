@@ -87,6 +87,30 @@ impl Default for Preferences {
   }
 }
 
+struct ContextMenuStore {
+  registered_path: PathBuf,
+}
+
+impl ContextMenuStore {
+  fn new(path: PathBuf) -> Self {
+    Self {
+      registered_path: path,
+    }
+  }
+
+  fn is_registered(&self) -> bool {
+    self.registered_path.exists()
+  }
+
+  fn mark_registered(&self) -> Result<(), String> {
+    if let Some(parent) = self.registered_path.parent() {
+      fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&self.registered_path, "1").map_err(|e| e.to_string())?;
+    Ok(())
+  }
+}
+
 struct PreferencesStore {
   path: PathBuf,
   prefs: Mutex<Preferences>,
@@ -168,6 +192,81 @@ fn is_allowed_external_url(url: &str) -> bool {
     || u.starts_with("https://")
     || u.starts_with("mailto:")
     || u.starts_with("tel:")
+}
+
+#[cfg(target_os = "windows")]
+fn register_context_menu_windows() -> Result<(), String> {
+  use std::process::Command;
+
+  let app_path = std::env::current_exe().map_err(|e| e.to_string())?;
+  let app_path_str = app_path.to_string_lossy();
+
+  let reg_script = format!(
+    r#"powershell -NoProfile -Command "
+$regPath = 'Registry::HKEY_CLASSES_ROOT\*\shell\GuvercinSend'
+$cmdPath = '$regPath\command'
+New-Item -Path $regPath -Force | Out-Null
+New-ItemProperty -Path $regPath -Name '(Default)' -Value 'Guvercin ile Gönder' -PropertyType String -Force | Out-Null
+New-Item -Path $cmdPath -Force | Out-Null
+New-ItemProperty -Path $cmdPath -Name '(Default)' -Value '\"{}\" --file-attachment \"%1\"' -PropertyType String -Force | Out-Null
+""#,
+    app_path_str
+  );
+
+  let output = Command::new("powershell")
+    .args(&["-NoProfile", "-Command", &reg_script])
+    .output()
+    .map_err(|e| e.to_string())?;
+
+  if output.status.success() {
+    log::info!("Context menu registered for Windows");
+    Ok(())
+  } else {
+    log::warn!(
+      "Context menu registration failed: {}",
+      String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(()) // Don't fail the whole app if registration fails
+  }
+}
+
+
+#[cfg(target_os = "linux")]
+fn register_context_menu_linux() -> Result<(), String> {
+  let home = std::env::var("HOME").ok();
+  if home.is_none() {
+    return Ok(()); // Skip if HOME is not set
+  }
+
+  let home = home.unwrap();
+
+  // Create Nautilus script
+  let nautilus_dir = PathBuf::from(&home).join(".local/share/nautilus/scripts");
+  fs::create_dir_all(&nautilus_dir).map_err(|e| e.to_string())?;
+
+  let nautilus_script = "#!/bin/bash\nfor file in $NAUTILUS_SCRIPT_SELECTED_FILE_PATHS; do\n    encoded_path=$(printf %s \"$file\" | sed 's/ /%20/g;s/&/%26/g;s/?/%3F/g')\n    xdg-open \"guvercin://attach-file?path=$encoded_path\" &\ndone\n";
+  let nautilus_path = nautilus_dir.join("Send with Guvercin");
+  fs::write(&nautilus_path, nautilus_script).map_err(|e| e.to_string())?;
+
+  use std::os::unix::fs::PermissionsExt;
+  let perms = fs::Permissions::from_mode(0o755);
+  fs::set_permissions(&nautilus_path, perms).map_err(|e| e.to_string())?;
+
+  // Create KDE Dolphin service menu
+  let kde_dir = PathBuf::from(&home).join(".local/share/kio/servicemenus");
+  fs::create_dir_all(&kde_dir).map_err(|e| e.to_string())?;
+
+  let kde_service = "[Desktop Entry]\nType=Service\nServiceTypes=KonqPopupMenu/Plugin\nMimeTypes=all/all\nActions=SendWithGuvercin\n\n[Desktop Action SendWithGuvercin]\nName=Send with Guvercin\nExec=sh -c 'xdg-open \"guvercin://attach-file?path=%f\"'\nIcon=mail\n";
+  let kde_path = kde_dir.join("guvercin-attach.desktop");
+  fs::write(&kde_path, kde_service).map_err(|e| e.to_string())?;
+
+  log::info!("Context menu registered for Linux");
+  Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn register_context_menu_linux() -> Result<(), String> {
+  Ok(()) // No-op on other platforms
 }
 
 #[tauri::command]
@@ -266,6 +365,54 @@ fn close_mail_window(handle: tauri::AppHandle, label: String) -> Result<(), Stri
     let _ = window.close();
   }
   Ok(())
+}
+
+#[tauri::command]
+async fn attach_file_to_compose(
+  handle: tauri::AppHandle,
+  file_path: String,
+) -> Result<(), String> {
+  use base64::Engine as _;
+
+  let path = PathBuf::from(file_path.trim());
+  if !path.exists() {
+    return Err("File not found".to_string());
+  }
+
+  let file_name = path
+    .file_name()
+    .and_then(|n| n.to_str())
+    .unwrap_or("attachment")
+    .to_string();
+
+  let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+  let base64_content = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+  let attachment_data = serde_json::json!({
+    "name": file_name,
+    "data_base64": base64_content,
+    "mimeType": ""
+  });
+
+  let compose_data = serde_json::json!({
+    "attachments": [attachment_data]
+  });
+
+  let compose_result = open_compose_window(
+    handle.clone(),
+    "compose-with-attachment".to_string(),
+    compose_data.to_string(),
+  )
+  .await;
+
+  // The "Send with Guvercin" flow is initiated from Finder, not the app, so the
+  // user wants just the compose window — hide the main window (only the window,
+  // not the whole app, so the compose window keeps focus on macOS).
+  if let Some(main) = handle.get_webview_window(MAIN_WINDOW_LABEL) {
+    let _ = main.hide();
+  }
+
+  compose_result
 }
 
 #[tauri::command]
@@ -780,7 +927,24 @@ pub fn run() {
   // needed on Windows and Linux.
   #[cfg(any(target_os = "windows", target_os = "linux"))]
   {
-    builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
+    builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+      // Handle --file-attachment argument from context menu
+      if argv.len() > 1 {
+        for i in 0..argv.len() - 1 {
+          if argv[i] == "--file-attachment" && i + 1 < argv.len() {
+            let file_path = argv[i + 1].clone();
+            let app_handle = app.app_handle().clone();
+            std::thread::spawn(move || {
+              let rt = tokio::runtime::Runtime::new().unwrap();
+              rt.block_on(async {
+                let _ = attach_file_to_compose(app_handle, file_path).await;
+              });
+            });
+            break;
+          }
+        }
+      }
+    }));
   }
 
   builder
@@ -889,6 +1053,27 @@ pub fn run() {
         .map(|dir| dir.join("preferences.json"))
         .unwrap_or_else(|| PathBuf::from("preferences.json"));
       app.manage(PreferencesStore::load(prefs_path));
+
+      // Register context menu on first launch
+      let context_menu_marker = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join(".context_menu_registered"))
+        .unwrap_or_else(|| PathBuf::from(".context_menu_registered"));
+      let context_menu_store = ContextMenuStore::new(context_menu_marker);
+
+      if !context_menu_store.is_registered() {
+        #[cfg(target_os = "windows")]
+        let _ = register_context_menu_windows().and_then(|_| context_menu_store.mark_registered());
+
+        #[cfg(target_os = "linux")]
+        let _ = register_context_menu_linux().and_then(|_| context_menu_store.mark_registered());
+
+        // macOS context menu registration is not needed - user can drag files to Guvercin or use URI scheme
+        #[cfg(target_os = "macos")]
+        let _ = context_menu_store.mark_registered();
+      }
       
       // Get app data directory for database
       let db_dir = app.path().app_data_dir().ok().map(|path| {
@@ -966,6 +1151,7 @@ pub fn run() {
       get_mail_window_data,
       close_mail_window,
       open_compose_window,
+      attach_file_to_compose,
       get_compose_window_data,
       close_compose_window,
       save_export_file_to_path,
