@@ -417,11 +417,11 @@ function getSortDirectionLabel(sortBy, direction) {
 }
 
 function isLabelMailbox(value) {
-    return /^(Labels|Labels|\[Labels\])(\/|$)/i.test((value || '').trim())
+    return /^(Labels|\[Labels\])(\/|$)/i.test((value || '').trim())
 }
 
 function isMailboxSectionRoot(value) {
-    return ['Folders', 'Labels', 'Labels'].includes((value || '').trim())
+    return ['Folders', 'Labels'].includes((value || '').trim())
 }
 
 function isMoveTargetMailbox(value) {
@@ -473,12 +473,11 @@ function parseDraggedMailIds(dataTransfer) {
     return normalizeIds(plainValue.split(',').map((part) => part.trim()))
 }
 
-const LABEL_NAMESPACE_ROOTS = ['Labels', 'Labels', '[Labels]']
+const LABEL_NAMESPACE_ROOTS = ['Labels', '[Labels]']
 
 function stripLabelMailboxNamespace(value) {
     return (value || '')
         .trim()
-        .replace(/^Labels\//i, '')
         .replace(/^Labels\//i, '')
         .replace(/^\[Labels\]\//i, '')
 }
@@ -5605,7 +5604,7 @@ function MailSection({
         [folders],
     )
     const folderTree = buildTree(folderMailboxes, ['Folders'])
-    const labelTree = buildTree(labels, ['Labels', 'Labels', '[Labels]'])
+    const labelTree = buildTree(labels, LABEL_NAMESPACE_ROOTS)
 
     const renderFolderCountBadges = (fullPath) => {
         if (!mailboxCountDisplayMode || mailboxCountDisplayMode === 'none') return null
