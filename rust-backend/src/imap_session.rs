@@ -634,7 +634,7 @@ pub fn build_imap_advanced_query(req: &AdvancedSearchRequest) -> String {
         parts.push(format!("SUBJECT {}", quote_imap_string(value)));
     }
     if let Some(value) = keywords {
-        parts.push(format!("BODY {}", quote_imap_string(value)));
+        parts.push(format!("TEXT {}", quote_imap_string(value)));
     }
 
     if let Some(start) = req

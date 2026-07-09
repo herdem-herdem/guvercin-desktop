@@ -637,6 +637,16 @@ fn apply_advanced_search_filters(
         qb.push(" AND (LOWER(COALESCE(plain_body, '')) LIKE LOWER(")
             .push_bind(pattern.clone())
             .push(") OR LOWER(COALESCE(html_body, '')) LIKE LOWER(")
+            .push_bind(pattern.clone())
+            .push(") OR LOWER(COALESCE(subject, '')) LIKE LOWER(")
+            .push_bind(pattern.clone())
+            .push(") OR LOWER(COALESCE(sender_address, '')) LIKE LOWER(")
+            .push_bind(pattern.clone())
+            .push(") OR LOWER(COALESCE(sender_name, '')) LIKE LOWER(")
+            .push_bind(pattern.clone())
+            .push(") OR LOWER(COALESCE(recipient_to, '')) LIKE LOWER(")
+            .push_bind(pattern.clone())
+            .push(") OR LOWER(COALESCE(cc_value, '')) LIKE LOWER(")
             .push_bind(pattern)
             .push("))");
     }
