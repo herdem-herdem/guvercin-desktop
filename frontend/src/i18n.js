@@ -50,3 +50,8 @@ i18n
     });
 
 export default i18n;
+
+// Export available languages for UI
+export function getAvailableLanguages() {
+    return Object.keys(resources).sort();
+}

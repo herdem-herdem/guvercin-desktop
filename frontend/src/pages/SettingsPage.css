@@ -273,7 +273,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 8px 6px 10px;
+  padding: 12px 8px 12px 10px;
   border-radius: 7px;
   cursor: pointer;
   user-select: none;
@@ -336,7 +336,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
+  padding: 8px 8px;
   border-radius: 6px;
   cursor: pointer;
   user-select: none;
@@ -610,13 +610,14 @@
   background: var(--c-surface-2);
   border: 1.5px solid var(--c-border-1);
   border-radius: 8px;
-  padding: 9px 12px;
+  padding: 10px 12px;
   font-size: 13px;
   color: var(--c-text-1);
   outline: none;
   max-width: 100%;
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
+  min-height: 40px;
 }
 
 .sp-form-field select:focus,

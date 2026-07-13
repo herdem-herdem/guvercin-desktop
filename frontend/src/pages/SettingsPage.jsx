@@ -37,6 +37,17 @@ import {
     getNotificationSettings,
     saveNotificationSettings,
 } from '../utils/notificationSettings.js'
+import {
+    getUIPreferences,
+    saveUIPreferences,
+} from '../utils/uiPreferences.js'
+import {
+    getGeneralSettings,
+    saveGeneralSettings,
+    getLaunchAtLogin,
+    setLaunchAtLogin,
+    getAvailableLanguages,
+} from '../utils/generalSettings.js'
 
 /** GET /api/account/:id/settings uses camelCase (AccountSettingsResponse). */
 function parseSavedOrderFromSettings(setData, camelKey, snakeKey) {
@@ -113,6 +124,16 @@ function offlineStateEquals(a, b) {
 /* ─── Static category tree ─────────────────────────────────────── */
 const CATEGORIES = [
     {
+        id: 'general',
+        label: 'General',
+        children: [
+            { id: 'general_behavior', label: 'Behavior & Startup', parentId: 'general' },
+            { id: 'language', label: 'Language', parentId: 'general' },
+            { id: 'sync', label: 'Auto-sync', parentId: 'general' },
+            { id: 'keyboard_shortcuts', label: 'Keyboard Shortcuts', parentId: 'general' },
+        ],
+    },
+    {
         id: 'appearance',
         label: 'Appearance',
         children: [
@@ -121,6 +142,8 @@ const CATEGORIES = [
             { id: 'layout', label: 'Layout', parentId: 'appearance' },
             { id: 'toolbar', label: 'Toolbar', parentId: 'appearance' },
             { id: 'mailbox_label_list', label: 'Mailbox & Label List', parentId: 'appearance' },
+            { id: 'list_display', label: 'Message List & Preview', parentId: 'appearance' },
+            { id: 'thread_view', label: 'Conversation View', parentId: 'appearance' },
         ],
     },
     {
@@ -129,6 +152,8 @@ const CATEGORIES = [
         children: [
             { id: 'compose', label: 'Compose & Send', parentId: 'email' },
             { id: 'notifications', label: 'Notifications', parentId: 'email' },
+            { id: 'remote_images', label: 'Remote Images', parentId: 'email' },
+            { id: 'read_behavior', label: 'Mark as Read', parentId: 'email' },
             { id: 'offline', label: 'Offline', parentId: 'email' },
             { id: 'imap', label: 'IMAP', parentId: 'email' },
             { id: 'smtp', label: 'SMTP', parentId: 'email' },
@@ -147,13 +172,21 @@ const CATEGORIES = [
 
 /** Searchable content per panel (titles, descriptions, labels, keywords). */
 const PANEL_SEARCH_INDEX = {
+    general_behavior: 'behavior startup launch login tray close quit minimize window behavior app start',
+    language: 'language lang locale translation translate dil türkçe english deutsch french español',
+    sync: 'sync synchronize interval auto automatic refresh mail periodic background',
+    keyboard_shortcuts: 'keyboard shortcut hotkey custom keybinding input cmd ctrl alt shift',
     theme: 'theme light dark system import appearance manual choose',
     font: 'font typeface typography family inter sans serif system appearance text readability',
     layout: 'layout drag drop sidebar toolbar tabs top bottom left right',
     toolbar: 'toolbar ribbon submenu icon text button style compact large vertical appearance',
     mailbox_label_list: 'sidebar mail counts unread total both none mailbox label list order reorder arrows folders',
+    list_display: 'message list density compact normal preview panel position right bottom conversation layout display',
+    thread_view: 'conversation thread view grouped messages discussion mail conversation grouped',
     compose: 'compose send signature html font size plain rich text format undo send delay autosave draft interval reply quote top bottom position cc myself self writing',
     notifications: 'notifications notify native desktop alert sound mute silent preview show hide privacy do not disturb dnd quiet hours vip senders badge count unread total dock tray',
+    remote_images: 'remote images load block auto prompt privacy safety external tracking',
+    read_behavior: 'mark read delay auto open email messages read unread',
     offline: 'offline sync download folders labels cache attachments policy days count enable email caching',
     imap: 'imap incoming mail server port password ssl starttls encryption connection',
     smtp: 'smtp outgoing mail server port password ssl starttls',
@@ -3178,6 +3211,722 @@ function NotificationSettings({ accountId, searchQuery = '' }) {
     )
 }
 
+/* ─── General / Behavior settings panel ────────────────────────── */
+function GeneralBehaviorSettings({ searchQuery = '' }) {
+    const [settings, setSettings] = useState(() => getGeneralSettings())
+    const [launchAtLogin, setLaunchAtLogin] = useState(false)
+    const [launchLoading, setLaunchLoading] = useState(true)
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState(null)
+    const baselineRef = useRef(null)
+
+    useEffect(() => {
+        const loaded = getGeneralSettings()
+        baselineRef.current = loaded
+        setSettings(loaded)
+        setMessage(null)
+
+        getLaunchAtLogin().then(enabled => {
+            setLaunchAtLogin(enabled)
+            setLaunchLoading(false)
+        }).catch(() => setLaunchLoading(false))
+    }, [])
+
+    const settingsRef = useRef(settings)
+    useLayoutEffect(() => {
+        settingsRef.current = settings
+    }, [settings])
+
+    const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }))
+
+    const handleLaunchToggle = async (enabled) => {
+        setLaunchAtLogin(enabled)
+        const success = await setLaunchAtLogin(enabled)
+        if (!success) {
+            setLaunchAtLogin(!enabled)
+            setMessage({ type: 'error', text: '❌ Could not change launch at login setting.' })
+        }
+    }
+
+    const persist = useCallback(async () => {
+        setSaving(true)
+        setMessage(null)
+        try {
+            const saved = saveGeneralSettings(null, settingsRef.current)
+            baselineRef.current = saved
+            setSettings(saved)
+            setMessage({ type: 'success', text: '✅ General preferences saved.' })
+        } catch {
+            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [])
+
+    const dirty = baselineRef.current != null
+        && JSON.stringify(settings) !== JSON.stringify(baselineRef.current)
+
+    useSettingsDraft('general-behavior', 'Behavior & Startup', {
+        isDirty: dirty,
+        save: persist,
+        revert: () => {
+            if (baselineRef.current != null) setSettings(baselineRef.current)
+        },
+    })
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Behavior & Startup" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Control how the application starts and closes." query={searchQuery} />
+            </p>
+
+            {/* Launch at login */}
+            <div className="sp-toggle-row">
+                <div className="sp-toggle-row__info">
+                    <span className="sp-toggle-row__label"><HighlightMatch text="Launch at login" query={searchQuery} /></span>
+                    <span className="sp-toggle-row__sub"><HighlightMatch text="Start Guvercin automatically when you log in" query={searchQuery} /></span>
+                </div>
+                {launchLoading ? (
+                    <div className="sp-spinner" style={{ width: 24, height: 24 }} />
+                ) : (
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={launchAtLogin}
+                        className={`sp-toggle ${launchAtLogin ? 'on' : ''}`}
+                        onClick={() => void handleLaunchToggle(!launchAtLogin)}
+                    >
+                        <span className="sp-toggle__knob" />
+                    </button>
+                )}
+            </div>
+
+            <div className="sp-section-divider" style={{ margin: '20px 0' }} />
+
+            {/* Close action */}
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 8 }}>
+                <HighlightMatch text="When closing the window" query={searchQuery} />
+            </h4>
+            <div className="sp-radio-group sp-radio-group--stacked">
+                <label className="sp-radio-label">
+                    <input type="radio" name="closeAction" checked={settings.closeAction === 'tray'} onChange={() => update({ closeAction: 'tray' })} />
+                    <span>
+                        <HighlightMatch text="Minimize to tray" query={searchQuery} />
+                        <div className="sp-section__hint">App continues running in background</div>
+                    </span>
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="closeAction" checked={settings.closeAction === 'quit'} onChange={() => update({ closeAction: 'quit' })} />
+                    <span>
+                        <HighlightMatch text="Quit the application" query={searchQuery} />
+                        <div className="sp-section__hint">App completely closes</div>
+                    </span>
+                </label>
+            </div>
+
+            {message && (
+                <div className={`sp-form-message sp-form-message--${message.type}`} style={{ marginTop: 16 }}>
+                    {message.text}
+                </div>
+            )}
+            <button type="button" className="sp-save-btn" style={{ marginTop: 20 }} onClick={() => void persist().catch(() => {})} disabled={saving || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+            </button>
+        </div>
+    )
+}
+
+/* ─── Language settings panel ──────────────────────────────────── */
+function LanguageSettings({ searchQuery = '' }) {
+    const [language, setLanguage] = useState(() => localStorage.getItem('temp_language') || localStorage.getItem('language') || 'en')
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState(null)
+    const baselineRef = useRef(language)
+
+    const persist = useCallback(async () => {
+        setSaving(true)
+        setMessage(null)
+        try {
+            localStorage.setItem('temp_language', language)
+            localStorage.setItem('language', language)
+            baselineRef.current = language
+            setMessage({ type: 'success', text: '✅ Language preference saved. Reload to apply.' })
+            setTimeout(() => window.location.reload(), 2000)
+        } catch {
+            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [language])
+
+    const dirty = language !== baselineRef.current
+
+    useSettingsDraft('language-settings', 'Language', {
+        isDirty: dirty,
+        save: persist,
+        revert: () => {
+            setLanguage(baselineRef.current)
+        },
+    })
+
+    const languages = getAvailableLanguages()
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Language" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Choose the language for the user interface." query={searchQuery} />
+            </p>
+
+            <div className="sp-form-field">
+                <label htmlFor="sp-language-select"><HighlightMatch text="Interface language" query={searchQuery} /></label>
+                <select
+                    id="sp-language-select"
+                    className="sp-font-select"
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                >
+                    {languages.map((lang) => (
+                        <option key={lang.code} value={lang.code}>
+                            {lang.label}
+                        </option>
+                    ))}
+                </select>
+                <p className="sp-section__hint">
+                    <HighlightMatch text="The interface will reload after saving." query={searchQuery} />
+                </p>
+            </div>
+
+            {message && (
+                <div className={`sp-form-message sp-form-message--${message.type}`} style={{ marginTop: 16 }}>
+                    {message.text}
+                </div>
+            )}
+            <button type="button" className="sp-save-btn" style={{ marginTop: 20 }} onClick={() => void persist().catch(() => {})} disabled={saving || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+            </button>
+        </div>
+    )
+}
+
+/* ─── Auto-sync settings panel ────────────────────────────────── */
+function SyncSettings({ searchQuery = '' }) {
+    const [settings, setSettings] = useState(() => getGeneralSettings())
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState(null)
+    const baselineRef = useRef(null)
+
+    useEffect(() => {
+        const loaded = getGeneralSettings()
+        baselineRef.current = loaded
+        setSettings(loaded)
+        setMessage(null)
+    }, [])
+
+    const settingsRef = useRef(settings)
+    useLayoutEffect(() => {
+        settingsRef.current = settings
+    }, [settings])
+
+    const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }))
+
+    const persist = useCallback(async () => {
+        setSaving(true)
+        setMessage(null)
+        try {
+            const saved = saveGeneralSettings(null, settingsRef.current)
+            baselineRef.current = saved
+            setSettings(saved)
+            setMessage({ type: 'success', text: '✅ Sync preferences saved.' })
+        } catch {
+            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [])
+
+    const dirty = baselineRef.current != null
+        && JSON.stringify(settings) !== JSON.stringify(baselineRef.current)
+
+    useSettingsDraft('sync-settings', 'Auto-sync', {
+        isDirty: dirty,
+        save: persist,
+        revert: () => {
+            if (baselineRef.current != null) setSettings(baselineRef.current)
+        },
+    })
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Auto-sync" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Configure automatic email synchronization in the background." query={searchQuery} />
+            </p>
+
+            <div className="sp-form-field">
+                <label htmlFor="sp-sync-interval"><HighlightMatch text="Sync interval (minutes)" query={searchQuery} /></label>
+                <input
+                    id="sp-sync-interval"
+                    type="number"
+                    min={0}
+                    max={60}
+                    className="sp-font-select"
+                    style={{ maxWidth: 120 }}
+                    value={settings.autoSyncInterval}
+                    onChange={(e) => update({ autoSyncInterval: e.target.value })}
+                />
+                <p className="sp-section__hint">
+                    {settings.autoSyncInterval === 0 ? (
+                        <HighlightMatch text="Auto-sync is disabled." query={searchQuery} />
+                    ) : (
+                        <HighlightMatch text={`Emails sync every ${settings.autoSyncInterval} minutes.`} query={searchQuery} />
+                    )}
+                </p>
+            </div>
+
+            <label className="sp-radio-label" style={{ marginTop: 16 }}>
+                <input type="checkbox" checked={settings.showSyncNotifications} onChange={(e) => update({ showSyncNotifications: e.target.checked })} />
+                <span>
+                    <HighlightMatch text="Show sync notifications" query={searchQuery} />
+                    <div className="sp-section__hint">Get notified when sync starts and completes</div>
+                </span>
+            </label>
+
+            {message && (
+                <div className={`sp-form-message sp-form-message--${message.type}`} style={{ marginTop: 16 }}>
+                    {message.text}
+                </div>
+            )}
+            <button type="button" className="sp-save-btn" style={{ marginTop: 20 }} onClick={() => void persist().catch(() => {})} disabled={saving || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+            </button>
+        </div>
+    )
+}
+
+/* ─── Keyboard Shortcuts settings panel ────────────────────────── */
+function KeyboardShortcutsSettings({ searchQuery = '' }) {
+    const defaultShortcuts = {
+        newMail: 'Ctrl+N',
+        search: 'Ctrl+F',
+        reply: 'Ctrl+R',
+        delete: 'Delete',
+        archive: 'E',
+        spam: 'Shift+S',
+    }
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Keyboard Shortcuts" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="View and manage keyboard shortcuts for common actions." query={searchQuery} />
+            </p>
+
+            <div style={{ marginTop: 20 }}>
+                <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: '0.9rem'
+                }}>
+                    <tbody>
+                        {Object.entries(defaultShortcuts).map(([action, shortcut]) => (
+                            <tr key={action} style={{
+                                borderBottom: '1px solid var(--c-surface-2)',
+                                padding: '12px 0'
+                            }}>
+                                <td style={{ padding: '12px 0', paddingRight: 16 }}>
+                                    <HighlightMatch text={action.replace(/([A-Z])/g, ' $1').trim()} query={searchQuery} />
+                                </td>
+                                <td style={{ padding: '12px 0', textAlign: 'right' }}>
+                                    <kbd style={{
+                                        background: 'var(--c-surface-2)',
+                                        border: '1px solid var(--c-surface-3)',
+                                        padding: '4px 8px',
+                                        borderRadius: 4,
+                                        fontFamily: 'monospace',
+                                        fontSize: '0.85em'
+                                    }}>
+                                        {shortcut}
+                                    </kbd>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            <p className="sp-section__hint" style={{ marginTop: 20 }}>
+                <HighlightMatch text="Keyboard shortcut customization will be available in a future update." query={searchQuery} />
+            </p>
+        </div>
+    )
+}
+
+/* ─── Remote Images settings panel ─────────────────────────────── */
+function RemoteImagesSettings({ accountId, searchQuery = '' }) {
+    const [settings, setSettings] = useState(() => getUIPreferences(accountId))
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState(null)
+    const baselineRef = useRef(null)
+
+    useEffect(() => {
+        const loaded = getUIPreferences(accountId)
+        baselineRef.current = loaded
+        setSettings(loaded)
+        setMessage(null)
+    }, [accountId])
+
+    const settingsRef = useRef(settings)
+    useLayoutEffect(() => {
+        settingsRef.current = settings
+    }, [settings])
+
+    const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }))
+
+    const persist = useCallback(async () => {
+        setSaving(true)
+        setMessage(null)
+        try {
+            const saved = saveUIPreferences(accountId, settingsRef.current)
+            baselineRef.current = saved
+            setSettings(saved)
+            setMessage({ type: 'success', text: '✅ Remote image preferences saved.' })
+        } catch {
+            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [accountId])
+
+    const dirty = baselineRef.current != null
+        && JSON.stringify(settings) !== JSON.stringify(baselineRef.current)
+
+    useSettingsDraft('remote-images', 'Remote Images', {
+        isDirty: dirty,
+        save: persist,
+        revert: () => {
+            if (baselineRef.current != null) setSettings(baselineRef.current)
+        },
+    })
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Remote Images" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Control how external images in emails are handled for privacy and security." query={searchQuery} />
+            </p>
+
+            <div className="sp-radio-group sp-radio-group--stacked">
+                <label className="sp-radio-label">
+                    <input type="radio" name="remoteImageMode" checked={settings.remoteImageMode === 'auto'} onChange={() => update({ remoteImageMode: 'auto' })} />
+                    <span>
+                        <HighlightMatch text="Always load remote images" query={searchQuery} />
+                        <div className="sp-section__hint">Images load automatically (less private)</div>
+                    </span>
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="remoteImageMode" checked={settings.remoteImageMode === 'block'} onChange={() => update({ remoteImageMode: 'block' })} />
+                    <span>
+                        <HighlightMatch text="Block all remote images" query={searchQuery} />
+                        <div className="sp-section__hint">Protects privacy, may affect email appearance</div>
+                    </span>
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="remoteImageMode" checked={settings.remoteImageMode === 'prompt'} onChange={() => update({ remoteImageMode: 'prompt' })} />
+                    <span>
+                        <HighlightMatch text="Ask for each email" query={searchQuery} />
+                        <div className="sp-section__hint">You decide for each message</div>
+                    </span>
+                </label>
+            </div>
+
+            {message && (
+                <div className={`sp-form-message sp-form-message--${message.type}`} style={{ marginTop: 16 }}>
+                    {message.text}
+                </div>
+            )}
+            <button type="button" className="sp-save-btn" style={{ marginTop: 20 }} onClick={() => void persist().catch(() => {})} disabled={saving || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+            </button>
+        </div>
+    )
+}
+
+/* ─── Mark as Read settings panel ───────────────────────────────── */
+function ReadBehaviorSettings({ accountId, searchQuery = '' }) {
+    const [settings, setSettings] = useState(() => getUIPreferences(accountId))
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState(null)
+    const baselineRef = useRef(null)
+
+    useEffect(() => {
+        const loaded = getUIPreferences(accountId)
+        baselineRef.current = loaded
+        setSettings(loaded)
+        setMessage(null)
+    }, [accountId])
+
+    const settingsRef = useRef(settings)
+    useLayoutEffect(() => {
+        settingsRef.current = settings
+    }, [settings])
+
+    const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }))
+
+    const persist = useCallback(async () => {
+        setSaving(true)
+        setMessage(null)
+        try {
+            const saved = saveUIPreferences(accountId, settingsRef.current)
+            baselineRef.current = saved
+            setSettings(saved)
+            setMessage({ type: 'success', text: '✅ Read behavior preferences saved.' })
+        } catch {
+            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [accountId])
+
+    const dirty = baselineRef.current != null
+        && JSON.stringify(settings) !== JSON.stringify(baselineRef.current)
+
+    useSettingsDraft('read-behavior', 'Mark as Read', {
+        isDirty: dirty,
+        save: persist,
+        revert: () => {
+            if (baselineRef.current != null) setSettings(baselineRef.current)
+        },
+    })
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Mark as Read" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Control when emails are automatically marked as read." query={searchQuery} />
+            </p>
+
+            <div className="sp-form-field">
+                <label htmlFor="sp-read-delay"><HighlightMatch text="Mark as read after opening (seconds)" query={searchQuery} /></label>
+                <input
+                    id="sp-read-delay"
+                    type="number"
+                    min={0}
+                    max={30}
+                    className="sp-font-select"
+                    style={{ maxWidth: 120 }}
+                    value={settings.markAsReadDelaySeconds}
+                    onChange={(e) => update({ markAsReadDelaySeconds: e.target.value })}
+                />
+                <p className="sp-section__hint">
+                    {settings.markAsReadDelaySeconds === 0 ? (
+                        <HighlightMatch text="Emails are marked read immediately when opened." query={searchQuery} />
+                    ) : (
+                        <HighlightMatch text={`Emails are marked read after ${settings.markAsReadDelaySeconds} seconds.`} query={searchQuery} />
+                    )}
+                </p>
+            </div>
+
+            {message && (
+                <div className={`sp-form-message sp-form-message--${message.type}`} style={{ marginTop: 16 }}>
+                    {message.text}
+                </div>
+            )}
+            <button type="button" className="sp-save-btn" style={{ marginTop: 20 }} onClick={() => void persist().catch(() => {})} disabled={saving || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+            </button>
+        </div>
+    )
+}
+
+/* ─── List Display settings panel ──────────────────────────────── */
+function ListDisplaySettings({ accountId, searchQuery = '' }) {
+    const [settings, setSettings] = useState(() => getUIPreferences(accountId))
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState(null)
+    const baselineRef = useRef(null)
+
+    useEffect(() => {
+        const loaded = getUIPreferences(accountId)
+        baselineRef.current = loaded
+        setSettings(loaded)
+        setMessage(null)
+    }, [accountId])
+
+    const settingsRef = useRef(settings)
+    useLayoutEffect(() => {
+        settingsRef.current = settings
+    }, [settings])
+
+    const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }))
+
+    const persist = useCallback(async () => {
+        setSaving(true)
+        setMessage(null)
+        try {
+            const saved = saveUIPreferences(accountId, settingsRef.current)
+            baselineRef.current = saved
+            setSettings(saved)
+            setMessage({ type: 'success', text: '✅ List display preferences saved.' })
+        } catch {
+            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [accountId])
+
+    const dirty = baselineRef.current != null
+        && JSON.stringify(settings) !== JSON.stringify(baselineRef.current)
+
+    useSettingsDraft('list-display', 'Message List & Preview', {
+        isDirty: dirty,
+        save: persist,
+        revert: () => {
+            if (baselineRef.current != null) setSettings(baselineRef.current)
+        },
+    })
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Message List & Preview" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Customize how the message list and preview panel appear." query={searchQuery} />
+            </p>
+
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 8 }}>
+                <HighlightMatch text="Message list density" query={searchQuery} />
+            </h4>
+            <div className="sp-radio-group sp-radio-group--stacked">
+                <label className="sp-radio-label">
+                    <input type="radio" name="listDensity" checked={settings.messageListDensity === 'normal'} onChange={() => update({ messageListDensity: 'normal' })} />
+                    <span>
+                        <HighlightMatch text="Normal" query={searchQuery} />
+                        <div className="sp-section__hint">More comfortable spacing</div>
+                    </span>
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="listDensity" checked={settings.messageListDensity === 'compact'} onChange={() => update({ messageListDensity: 'compact' })} />
+                    <span>
+                        <HighlightMatch text="Compact" query={searchQuery} />
+                        <div className="sp-section__hint">More messages visible at once</div>
+                    </span>
+                </label>
+            </div>
+
+            <h4 className="sp-section__title" style={{ fontSize: '1rem', marginTop: 20 }}>
+                <HighlightMatch text="Preview panel position" query={searchQuery} />
+            </h4>
+            <div className="sp-radio-group sp-radio-group--stacked">
+                <label className="sp-radio-label">
+                    <input type="radio" name="previewPos" checked={settings.previewPanelPosition === 'right'} onChange={() => update({ previewPanelPosition: 'right' })} />
+                    <span>
+                        <HighlightMatch text="On the right" query={searchQuery} />
+                        <div className="sp-section__hint">Wide layout, list on left</div>
+                    </span>
+                </label>
+                <label className="sp-radio-label">
+                    <input type="radio" name="previewPos" checked={settings.previewPanelPosition === 'bottom'} onChange={() => update({ previewPanelPosition: 'bottom' })} />
+                    <span>
+                        <HighlightMatch text="At the bottom" query={searchQuery} />
+                        <div className="sp-section__hint">Tall layout, list on top</div>
+                    </span>
+                </label>
+            </div>
+
+            {message && (
+                <div className={`sp-form-message sp-form-message--${message.type}`} style={{ marginTop: 16 }}>
+                    {message.text}
+                </div>
+            )}
+            <button type="button" className="sp-save-btn" style={{ marginTop: 20 }} onClick={() => void persist().catch(() => {})} disabled={saving || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+            </button>
+        </div>
+    )
+}
+
+/* ─── Thread View settings panel ───────────────────────────────── */
+function ThreadViewSettings({ accountId, searchQuery = '' }) {
+    const [settings, setSettings] = useState(() => getUIPreferences(accountId))
+    const [saving, setSaving] = useState(false)
+    const [message, setMessage] = useState(null)
+    const baselineRef = useRef(null)
+
+    useEffect(() => {
+        const loaded = getUIPreferences(accountId)
+        baselineRef.current = loaded
+        setSettings(loaded)
+        setMessage(null)
+    }, [accountId])
+
+    const settingsRef = useRef(settings)
+    useLayoutEffect(() => {
+        settingsRef.current = settings
+    }, [settings])
+
+    const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }))
+
+    const persist = useCallback(async () => {
+        setSaving(true)
+        setMessage(null)
+        try {
+            const saved = saveUIPreferences(accountId, settingsRef.current)
+            baselineRef.current = saved
+            setSettings(saved)
+            setMessage({ type: 'success', text: '✅ Conversation view preference saved.' })
+        } catch {
+            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            throw new Error('save_failed')
+        } finally {
+            setSaving(false)
+        }
+    }, [accountId])
+
+    const dirty = baselineRef.current != null
+        && JSON.stringify(settings) !== JSON.stringify(baselineRef.current)
+
+    useSettingsDraft('thread-view', 'Conversation View', {
+        isDirty: dirty,
+        save: persist,
+        revert: () => {
+            if (baselineRef.current != null) setSettings(baselineRef.current)
+        },
+    })
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Conversation View" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                <HighlightMatch text="Group related messages into conversations to see the full discussion thread." query={searchQuery} />
+            </p>
+
+            <label className="sp-radio-label">
+                <input type="checkbox" checked={settings.threadViewEnabled} onChange={(e) => update({ threadViewEnabled: e.target.checked })} />
+                <span>
+                    <HighlightMatch text="Enable conversation view" query={searchQuery} />
+                    <div className="sp-section__hint">Messages with the same subject are grouped together</div>
+                </span>
+            </label>
+
+            {message && (
+                <div className={`sp-form-message sp-form-message--${message.type}`} style={{ marginTop: 16 }}>
+                    {message.text}
+                </div>
+            )}
+            <button type="button" className="sp-save-btn" style={{ marginTop: 20 }} onClick={() => void persist().catch(() => {})} disabled={saving || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+            </button>
+        </div>
+    )
+}
+
 function renderContent(selection, accountId, onClose, onRefreshAccount, searchQuery = '', appearance) {
     if (!selection) return null
 
@@ -3210,6 +3959,10 @@ function renderSinglePanel(id, accountId, onClose, onRefreshAccount, searchQuery
         toolbarStyleReady,
     } = appearance
     switch (id) {
+        case 'general_behavior': return <GeneralBehaviorSettings key="general-behavior" searchQuery={q} />
+        case 'language': return <LanguageSettings key="language" searchQuery={q} />
+        case 'sync': return <SyncSettings key="sync" searchQuery={q} />
+        case 'keyboard_shortcuts': return <KeyboardShortcutsSettings key="keyboard-shortcuts" searchQuery={q} />
         case 'theme': return (
             <ThemeSettings
                 accountId={accountId}
@@ -3258,10 +4011,14 @@ function renderSinglePanel(id, accountId, onClose, onRefreshAccount, searchQuery
                 <LabelOrderSettings accountId={accountId} onRefreshAccount={onRefreshAccount} searchQuery={q} />
             </>
         )
+        case 'list_display': return <ListDisplaySettings accountId={accountId} key={`list-display-${accountId}`} searchQuery={q} />
+        case 'thread_view': return <ThreadViewSettings accountId={accountId} key={`thread-view-${accountId}`} searchQuery={q} />
         case 'imap': return <ServerSettings accountId={accountId} type="imap" key={`imap-${accountId}`} searchQuery={q} />
         case 'smtp': return <ServerSettings accountId={accountId} type="smtp" key={`smtp-${accountId}`} searchQuery={q} />
         case 'compose': return <ComposeSettings accountId={accountId} key={`compose-${accountId}`} searchQuery={q} />
         case 'notifications': return <NotificationSettings accountId={accountId} key={`notifications-${accountId}`} searchQuery={q} />
+        case 'remote_images': return <RemoteImagesSettings accountId={accountId} key={`remote-images-${accountId}`} searchQuery={q} />
+        case 'read_behavior': return <ReadBehaviorSettings accountId={accountId} key={`read-behavior-${accountId}`} searchQuery={q} />
         case 'offline': return <OfflineSettings accountId={accountId} key={`offline-${accountId}`} searchQuery={q} />
         case 'links': return <LinksSettings key="links" searchQuery={q} />
         case 'blocked': return <BlockedSendersSettings accountId={accountId} key={`blocked-${accountId}`} searchQuery={q} />
@@ -3292,7 +4049,7 @@ function SettingsPage(props) {
             })
             .filter(Boolean)
     }, [searchQuery])
-    const [expanded, setExpanded] = useState({ appearance: true, email: true, security: true })
+    const [expanded, setExpanded] = useState({ general: false, appearance: false, email: false, security: false })
     const [selected, setSelected] = useState('appearance')
     const searchRef = useRef(null)
 
