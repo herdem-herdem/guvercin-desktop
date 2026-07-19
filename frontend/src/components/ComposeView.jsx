@@ -129,24 +129,9 @@ function RecipientField({ label, recipients, onChange, placeholder, trailingActi
 
         if (event.key === 'Backspace' && !draftToken) {
             event.preventDefault()
-            if (editingIndex != null) {
-                const previousIndex = editingIndex > 0 ? editingIndex - 1 : null
-                if (previousIndex != null) {
-                    setDraftToken(recipients[previousIndex] || '')
-                    setEditingIndex(previousIndex)
-                } else {
-                    setEditingIndex(null)
-                }
-                return
-            }
-
-            const previousIndex = recipients.length - 1
-            if (previousIndex >= 0) {
+            if (recipients.length > 0) {
                 const nextRecipients = recipients.slice(0, -1)
-                const previousValue = recipients[previousIndex]
                 commitRecipients(nextRecipients)
-                setDraftToken(previousValue)
-                setEditingIndex(previousIndex)
             }
         }
     }, [commitRecipients, draftToken, editingIndex, finalizeToken, recipients])

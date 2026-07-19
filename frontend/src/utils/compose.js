@@ -86,7 +86,7 @@ export function parseComposeRecipients(value) {
 export function normalizeRecipientForSend(value) {
   const normalized = normalizeRecipientToken(value)
   if (!normalized || !SIMPLE_EMAIL_RE.test(normalized)) {
-    throw new Error(`Invalid recipient: ${value || ''}`.trim())
+    throw new Error(`Invalid email address: "${value || ''}"`)
   }
   return normalized
 }

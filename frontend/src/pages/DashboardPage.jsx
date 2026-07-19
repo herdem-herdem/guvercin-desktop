@@ -4123,12 +4123,17 @@ function MailSection({
             closeComposeTarget(target)
             onAfterClose?.()
             void (async () => {
-                const sentOk = await sendComposedMail(draft)
-                if (!sentOk) {
+                try {
+                    const sentOk = await sendComposedMail(draft)
+                    if (!sentOk) {
+                        restoreComposeTarget(target, draft)
+                        return
+                    }
+                    await onCommitted?.()
+                } catch (error) {
+                    window.alert(error?.message || 'Failed to send email.')
                     restoreComposeTarget(target, draft)
-                    return
                 }
-                await onCommitted?.()
             })()
             return true
         }
@@ -6732,10 +6737,10 @@ function MailSection({
                         )}
                         {!activeTabId && activeRibbonTab === 'help' && (
                             <ul>
-                                <li><button className="db-submenu-main-btn" onClick={() => window.location.href = 'mailto:support@guvercin.email'}>{toolbarMainButtonContent(<img src="/img/icons/settings.svg" className="svg-icon-inline" />, t('Help'))}</button></li>
-                                <li><button className="db-submenu-main-btn" onClick={() => window.location.href = 'mailto:hello@guvercin.email'}>{toolbarMainButtonContent(<img src="/img/icons/mail.svg" className="svg-icon-inline" />, t('Contact Us'))}</button></li>
-                                <li><button className="db-submenu-main-btn" onClick={() => window.location.href = 'mailto:hello@guvercin.email'}>{toolbarMainButtonContent(<img src="/img/icons/new-mail.svg" className="svg-icon-inline" />, t('Feedback'))}</button></li>
-                                <li><button className="db-submenu-main-btn" onClick={() => window.location.href = 'mailto:support@guvercin.email'}>{toolbarMainButtonContent(<img src="/img/icons/notification.svg" className="svg-icon-inline" />, t('Report Bug'))}</button></li>
+                                <li><button className="db-submenu-main-btn" onClick={() => requestNewCompose({ to: 'support@guvercin.email' })}>{toolbarMainButtonContent(<img src="/img/icons/settings.svg" className="svg-icon-inline" />, t('Help'))}</button></li>
+                                <li><button className="db-submenu-main-btn" onClick={() => requestNewCompose({ to: 'hello@guvercin.email' })}>{toolbarMainButtonContent(<img src="/img/icons/mail.svg" className="svg-icon-inline" />, t('Contact Us'))}</button></li>
+                                <li><button className="db-submenu-main-btn" onClick={() => requestNewCompose({ to: 'hello@guvercin.email' })}>{toolbarMainButtonContent(<img src="/img/icons/new-mail.svg" className="svg-icon-inline" />, t('Feedback'))}</button></li>
+                                <li><button className="db-submenu-main-btn" onClick={() => requestNewCompose({ to: 'support@guvercin.email' })}>{toolbarMainButtonContent(<img src="/img/icons/notification.svg" className="svg-icon-inline" />, t('Report Bug'))}</button></li>
                             </ul>
                         )}
                         {!activeTabId && activeRibbonTab === 'view' && (
