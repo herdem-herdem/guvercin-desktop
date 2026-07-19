@@ -3002,6 +3002,23 @@ body.resizing * {
   color: var(--c-primary-contrast);
 }
 
+.db-mail-content-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  color: var(--c-text-2);
+  flex-shrink: 0;
+}
+
+.db-mail-content-close:hover {
+  background: var(--c-border-1);
+  color: var(--c-text-1);
+}
+
 .db-mail-action-btn:disabled {
   opacity: 0.3;
   cursor: default;

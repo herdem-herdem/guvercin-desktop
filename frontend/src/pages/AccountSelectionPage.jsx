@@ -6,12 +6,67 @@ import './AccountSelectionPage.css'
 import { hydrateAccountSession } from '../utils/accountStorage.js'
 import LanguageSelector from '../components/LanguageSelector.jsx'
 
+// Default main-window size (matches src-tauri/tauri.conf.json) restored once
+// the user leaves the account-selection screen.
+const MAIN_WINDOW_WIDTH = 1000
+const MAIN_WINDOW_HEIGHT = 700
+
+// Fixed size for the account-selection screen (matches the app's normal
+// minimum window size in src-tauri/tauri.conf.json).
+const SELECTION_WINDOW_WIDTH = 850
+const SELECTION_WINDOW_HEIGHT = 600
+
+function isTauri() {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+// Shrinks and centers the native window to a fixed size and locks resizing,
+// so this screen stays at exactly its minimum size instead of full-screen
+// or user-resizable. Scoped entirely to this screen — restoreMainWindow()
+// below puts the main window's own size/resizable settings back once the
+// user leaves, so this never leaks into the dashboard/login window.
+async function setSelectionWindowSize() {
+  if (!isTauri()) return
+  try {
+    const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window')
+    const win = getCurrentWindow()
+    await win.unmaximize()
+    await win.setSize(new LogicalSize(SELECTION_WINDOW_WIDTH, SELECTION_WINDOW_HEIGHT))
+    await win.center()
+    await win.setResizable(false)
+  } catch {
+    // Not inside Tauri or the API is unavailable; keep current window size.
+  }
+}
+
+// Restores the normal main-window size and resizability when navigating
+// away to login/dashboard.
+async function restoreMainWindow() {
+  if (!isTauri()) return
+  try {
+    const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window')
+    const win = getCurrentWindow()
+    await win.setResizable(true)
+    await win.setSize(new LogicalSize(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT))
+    await win.center()
+  } catch {
+    // Not inside Tauri or the API is unavailable.
+  }
+}
+
 function AccountSelectionPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    setSelectionWindowSize()
+    return () => {
+      restoreMainWindow()
+    }
+  }, [])
 
   useEffect(() => {
     let active = true

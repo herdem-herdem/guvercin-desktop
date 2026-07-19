@@ -376,6 +376,13 @@ export default function MailWorkspace({ accountId, email }) {
               <div className="db-mail-content-subject">
                 {mailContent?.subject || selectedMail.subject || '(No Subject)'}
               </div>
+              <button
+                className="db-mail-content-close"
+                onClick={() => setSelectedMail(null)}
+                title="Close mail"
+              >
+                ✕
+              </button>
             </div>
             {headersPanel.open && headersPanel.key === mailHeadersKey(selectedMail, selectedMail?.mailbox || selectedFolder || 'INBOX') && (
               <MailHeadersPanel

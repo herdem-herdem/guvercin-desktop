@@ -18,6 +18,11 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",
+    "core:window:allow-set-size",
+    "core:window:allow-set-resizable",
+    "core:window:allow-unmaximize",
+    "core:window:allow-maximize",
+    "core:window:allow-center",
     "deep-link:default",
     "notification:default"
   ]

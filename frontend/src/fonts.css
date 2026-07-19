@@ -1,0 +1,55 @@
+/* Neue Haas Grotesk Font Family */
+
+@font-face {
+  font-family: "Neue Haas Grotesk Display Pro";
+  src: url('/fonts/NeueHaasGroteskDisplay-Pro.woff2') format('woff2'),
+       url('/fonts/NeueHaasGroteskDisplay-Pro.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Neue Haas Grotesk Display Pro";
+  src: url('/fonts/NeueHaasGroteskDisplay-ProBold.woff2') format('woff2'),
+       url('/fonts/NeueHaasGroteskDisplay-ProBold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Neue Haas Grotesk Text Pro";
+  src: url('/fonts/NeueHaasGroteskText-Pro.woff2') format('woff2'),
+       url('/fonts/NeueHaasGroteskText-Pro.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Neue Haas Grotesk Text Pro";
+  src: url('/fonts/NeueHaasGroteskText-ProBold.woff2') format('woff2'),
+       url('/fonts/NeueHaasGroteskText-ProBold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Neue Haas Grotesk Text Pro";
+  src: url('/fonts/NeueHaasGroteskText-ProMedium.woff2') format('woff2'),
+       url('/fonts/NeueHaasGroteskText-ProMedium.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Neue Haas Grotesk Text Pro";
+  src: url('/fonts/NeueHaasGroteskText-ProSemiBold.woff2') format('woff2'),
+       url('/fonts/NeueHaasGroteskText-ProSemiBold.woff') format('woff');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}

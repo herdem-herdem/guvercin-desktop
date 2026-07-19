@@ -1647,3 +1647,108 @@
     font-size: 13px;
     color: var(--c-text-2);
 }
+
+/* ─── Keyboard shortcuts editor ─────────────────────────────────── */
+.sp-shortcut-list {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.sp-shortcut-group__title {
+    margin: 0 0 8px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--c-text-3);
+}
+
+.sp-shortcut-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 4px;
+    border-bottom: 1px solid var(--c-border-1);
+}
+
+.sp-shortcut-row--disabled .sp-shortcut-row__label,
+.sp-shortcut-row--disabled .sp-shortcut-kbd {
+    opacity: 0.5;
+}
+
+.sp-shortcut-row__toggle {
+    display: inline-flex;
+    align-items: center;
+}
+
+.sp-shortcut-row__label {
+    flex: 1;
+    font-size: 14px;
+    color: var(--c-text-1);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sp-shortcut-row__conflict {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-danger);
+}
+
+.sp-shortcut-row__combo {
+    min-width: 120px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    padding: 5px 10px;
+    background: var(--c-surface-2);
+    border: 1px solid var(--c-border-2);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--c-text-1);
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.sp-shortcut-row__combo:hover {
+    border-color: var(--c-primary);
+}
+
+.sp-shortcut-row__combo.is-recording {
+    border-color: var(--c-primary);
+    background: var(--c-primary-muted);
+    color: var(--c-primary);
+    font-style: italic;
+}
+
+.sp-shortcut-row__unset {
+    color: var(--c-text-3);
+    font-style: italic;
+}
+
+.sp-shortcut-kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.sp-shortcut-row__reset {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    color: var(--c-text-3);
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.sp-shortcut-row__reset:hover {
+    color: var(--c-primary);
+    background: var(--overlay-hover-1);
+}

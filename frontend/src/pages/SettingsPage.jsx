@@ -48,6 +48,16 @@ import {
     setLaunchAtLogin,
     getAvailableLanguages,
 } from '../utils/generalSettings.js'
+import {
+    SHORTCUT_CATEGORIES,
+    getShortcuts,
+    setShortcut,
+    resetShortcut,
+    resetAllShortcuts,
+    comboFromEvent,
+    formatCombo,
+    findConflict,
+} from '../utils/keyboardShortcuts.js'
 
 /** GET /api/account/:id/settings uses camelCase (AccountSettingsResponse). */
 function parseSavedOrderFromSettings(setData, camelKey, snakeKey) {
@@ -3509,59 +3519,154 @@ function SyncSettings({ searchQuery = '' }) {
 }
 
 /* ─── Keyboard Shortcuts settings panel ────────────────────────── */
+function ShortcutRow({ shortcut, searchQuery, recording, onRecordStart, onRecordKey, onRecordCancel, onToggle, onReset }) {
+    const conflictId = recording ? null : (shortcut.keys ? findConflict(shortcut.keys, shortcut.id) : null)
+
+    return (
+        <div className={`sp-shortcut-row ${shortcut.enabled ? '' : 'sp-shortcut-row--disabled'}`}>
+            <label className="sp-shortcut-row__toggle" title={shortcut.enabled ? 'Enabled' : 'Disabled'}>
+                <input
+                    type="checkbox"
+                    checked={shortcut.enabled}
+                    onChange={(e) => onToggle(shortcut.id, e.target.checked)}
+                />
+            </label>
+            <span className="sp-shortcut-row__label">
+                <HighlightMatch text={shortcut.label} query={searchQuery} />
+                {conflictId && (
+                    <span className="sp-shortcut-row__conflict" title="This combo is also bound to another enabled shortcut">
+                        ⚠ conflict
+                    </span>
+                )}
+            </span>
+            <button
+                type="button"
+                className={`sp-shortcut-row__combo ${recording ? 'is-recording' : ''}`}
+                onClick={() => onRecordStart(shortcut.id)}
+                onKeyDown={(e) => recording && onRecordKey(e, shortcut.id)}
+                onBlur={() => recording && onRecordCancel()}
+            >
+                {recording
+                    ? 'Press keys…'
+                    : (shortcut.keys ? <kbd className="sp-shortcut-kbd">{formatCombo(shortcut.keys)}</kbd> : <span className="sp-shortcut-row__unset">Not set</span>)}
+            </button>
+            {shortcut.isCustom && (
+                <button
+                    type="button"
+                    className="sp-shortcut-row__reset"
+                    title="Reset to default"
+                    onClick={() => onReset(shortcut.id)}
+                >
+                    ↺
+                </button>
+            )}
+        </div>
+    )
+}
+
 function KeyboardShortcutsSettings({ searchQuery = '' }) {
-    const defaultShortcuts = {
-        newMail: 'Ctrl+N',
-        search: 'Ctrl+F',
-        reply: 'Ctrl+R',
-        delete: 'Delete',
-        archive: 'E',
-        spam: 'Shift+S',
-    }
+    const [shortcuts, setShortcuts] = useState(() => getShortcuts())
+    const [recordingId, setRecordingId] = useState(null)
+
+    const reload = useCallback(() => setShortcuts(getShortcuts()), [])
+
+    const handleRecordStart = useCallback((id) => {
+        setRecordingId((prev) => (prev === id ? null : id))
+    }, [])
+
+    const handleRecordKey = useCallback((e, id) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.key === 'Escape') {
+            setRecordingId(null)
+            return
+        }
+        if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+            // Bare Backspace while recording clears the binding.
+            setShortcut(id, { keys: null })
+            setRecordingId(null)
+            reload()
+            return
+        }
+        const combo = comboFromEvent(e)
+        if (!combo) return // still holding only modifiers — keep waiting
+        setShortcut(id, { keys: combo })
+        setRecordingId(null)
+        reload()
+    }, [reload])
+
+    const handleToggle = useCallback((id, enabled) => {
+        setShortcut(id, { enabled })
+        reload()
+    }, [reload])
+
+    const handleReset = useCallback((id) => {
+        resetShortcut(id)
+        reload()
+    }, [reload])
+
+    const handleResetAll = useCallback(() => {
+        resetAllShortcuts()
+        setRecordingId(null)
+        reload()
+    }, [reload])
+
+    const q = (searchQuery || '').trim().toLowerCase()
+
+    const groups = SHORTCUT_CATEGORIES.map((cat) => ({
+        ...cat,
+        items: shortcuts.filter((s) => s.category === cat.id
+            && (!q || s.label.toLowerCase().includes(q) || (s.keys || '').toLowerCase().includes(q))),
+    })).filter((g) => g.items.length > 0)
 
     return (
         <div className="sp-section">
             <h2 className="sp-section__title"><HighlightMatch text="Keyboard Shortcuts" query={searchQuery} /></h2>
             <p className="sp-section__desc">
-                <HighlightMatch text="View and manage keyboard shortcuts for common actions." query={searchQuery} />
+                <HighlightMatch
+                    text="Customize keyboard shortcuts for every action. Toggle a shortcut on or off, click its combo to record a new one, or reset it to the default. Enabled common shortcuts use conventional bindings out of the box."
+                    query={searchQuery}
+                />
             </p>
 
-            <div style={{ marginTop: 20 }}>
-                <table style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: '0.9rem'
-                }}>
-                    <tbody>
-                        {Object.entries(defaultShortcuts).map(([action, shortcut]) => (
-                            <tr key={action} style={{
-                                borderBottom: '1px solid var(--c-surface-2)',
-                                padding: '12px 0'
-                            }}>
-                                <td style={{ padding: '12px 0', paddingRight: 16 }}>
-                                    <HighlightMatch text={action.replace(/([A-Z])/g, ' $1').trim()} query={searchQuery} />
-                                </td>
-                                <td style={{ padding: '12px 0', textAlign: 'right' }}>
-                                    <kbd style={{
-                                        background: 'var(--c-surface-2)',
-                                        border: '1px solid var(--c-surface-3)',
-                                        padding: '4px 8px',
-                                        borderRadius: 4,
-                                        fontFamily: 'monospace',
-                                        fontSize: '0.85em'
-                                    }}>
-                                        {shortcut}
-                                    </kbd>
-                                </td>
-                            </tr>
+            <div className="sp-shortcut-list">
+                {groups.map((group) => (
+                    <div key={group.id} className="sp-shortcut-group">
+                        <h4 className="sp-shortcut-group__title">
+                            <HighlightMatch text={group.label} query={searchQuery} />
+                        </h4>
+                        {group.items.map((shortcut) => (
+                            <ShortcutRow
+                                key={shortcut.id}
+                                shortcut={shortcut}
+                                searchQuery={searchQuery}
+                                recording={recordingId === shortcut.id}
+                                onRecordStart={handleRecordStart}
+                                onRecordKey={handleRecordKey}
+                                onRecordCancel={() => setRecordingId(null)}
+                                onToggle={handleToggle}
+                                onReset={handleReset}
+                            />
                         ))}
-                    </tbody>
-                </table>
+                    </div>
+                ))}
+                {groups.length === 0 && (
+                    <p className="sp-section__hint">No shortcuts match your search.</p>
+                )}
             </div>
 
-            <p className="sp-section__hint" style={{ marginTop: 20 }}>
-                <HighlightMatch text="Keyboard shortcut customization will be available in a future update." query={searchQuery} />
+            <p className="sp-section__hint" style={{ marginTop: 16 }}>
+                While recording, press Esc to cancel or Backspace to clear the binding.
             </p>
+
+            <button
+                type="button"
+                className="sp-ghost-btn"
+                style={{ marginTop: 16 }}
+                onClick={handleResetAll}
+            >
+                Reset all to defaults
+            </button>
         </div>
     )
 }

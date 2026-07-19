@@ -23,6 +23,7 @@ import {
     parseComposeRecipients,
 } from '../utils/compose.js'
 import { queueComposeSend } from '../utils/composeSend.js'
+import { getActiveComboMap, matchShortcut } from '../utils/keyboardShortcuts.js'
 import {
     getComposeSettings,
     buildNewMailFields,
@@ -1430,6 +1431,50 @@ const DashboardPage = () => {
         return () => window.removeEventListener('keydown', onKey)
     }, [accountMenuOpen])
 
+    /* ─── Global (navigation/search/app) keyboard shortcuts ────────── */
+    // Mail- and compose-scoped shortcuts are dispatched inside MailSection; the
+    // navigation, search and app-level ones live here where their state exists.
+    const globalShortcutActionsRef = useRef({})
+    globalShortcutActionsRef.current = {
+        search: () => {
+            setActiveSection('mail')
+            requestAnimationFrame(() => {
+                const input = document.querySelector('.db-search input')
+                if (input) input.focus()
+                else setIsAdvancedSearchOpen(true)
+            })
+        },
+        advanced_search: () => {
+            setActiveSection('mail')
+            setIsAdvancedSearchOpen(true)
+        },
+        go_mail: () => setActiveSection('mail'),
+        go_calendar: () => setActiveSection('calendar'),
+        go_contacts: () => setActiveSection('contacts'),
+        go_todo: () => setActiveSection('todo'),
+        open_settings: () => navigate('/settings'),
+    }
+
+    const [globalShortcutComboMap, setGlobalShortcutComboMap] = useState(() => getActiveComboMap())
+    useEffect(() => {
+        const reload = () => setGlobalShortcutComboMap(getActiveComboMap())
+        window.addEventListener('guvercin-shortcuts-changed', reload)
+        return () => window.removeEventListener('guvercin-shortcuts-changed', reload)
+    }, [])
+
+    useEffect(() => {
+        const onKeyDown = (event) => {
+            const actionId = matchShortcut(event, globalShortcutComboMap)
+            if (!actionId) return
+            const action = globalShortcutActionsRef.current[actionId]
+            if (!action) return
+            event.preventDefault()
+            action()
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [globalShortcutComboMap])
+
     useEffect(() => {
         const syncToolbarStyle = () => {
             setToolbarStyle(normalizeToolbarStyle(localStorage.getItem('toolbar_style')))
@@ -2713,7 +2758,7 @@ const DashboardPage = () => {
                                     onClick={handleReconnectImap}
                                     disabled={!networkOnline || !backendReachable || connecting}
                                 >
-                                    {connecting ? 'Reconnecting...' : 'Reconnect IMAP'}
+                                    {connecting ? 'Reconnecting...' : 'Reconnect'}
                                 </button>
                                 {lastSyncAt && <div className="db-sync-popover__row">Last sync: {lastSyncAt}</div>}
                                 {formatTransfer(transfer?.receiving) && <div className="db-sync-popover__row">{formatTransfer(transfer.receiving)}</div>}
@@ -6260,6 +6305,66 @@ function MailSection({
             intent: 'discard',
         })
     }, [inlineComposeSession, requestComposeExit])
+
+    /* ─── Global keyboard shortcut dispatch ───────────────────────── */
+    // Map registry action ids to the handlers already defined above. Kept in a
+    // ref updated every render so the keydown listener always calls the latest
+    // closures without needing to re-subscribe.
+    // MailSection handles the mail- and compose-scoped shortcuts (it owns those
+    // handlers). Navigation/search/settings shortcuts are dispatched by the
+    // outer DashboardPage, which owns that state.
+    const shortcutActionsRef = useRef({})
+    shortcutActionsRef.current = {
+        compose_new: () => { void handleNewMail() },
+        reply: () => { void handleReplyAction() },
+        reply_all: () => { if (hasAnyActionMail) void composeReplyDraft(actionableMails, 'reply_all') },
+        forward: () => { void handleForwardAction() },
+        delete: () => { void handleDeleteAction() },
+        move_to_trash: () => { void handleMoveToTrashAction() },
+        archive: () => { void handleArchiveAction() },
+        mark_spam: () => { if (hasAnyActionMail) void handleMoveAction(resolveFolderDestination('Spam')) },
+        toggle_read: () => { void handleReadToggleAction() },
+        add_label: () => { void handleCreateLabelAction() },
+        print: () => { window.print() },
+        refresh: () => { void syncMailsFromRemote(selectedFolder) },
+        close_tab: () => { if (activeTabId) closeTab({ stopPropagation() {} }, activeTabId) },
+        toggle_fullscreen: () => toggleMailFullscreen(),
+        compose_send: () => {
+            if (activeComposeTab) void handleActiveComposeTabSend()
+            else if (inlineComposeSession) void handleInlineComposeSend()
+        },
+        compose_save_draft: () => {
+            const draft = activeComposeTab?.draft || inlineComposeSession?.draft
+            if (draft) void saveComposeDraft(draft)
+        },
+        compose_discard: () => {
+            if (activeComposeTab) handleActiveComposeTabDiscard()
+            else if (inlineComposeSession) handleInlineComposeDiscard()
+        },
+        compose_open_window: () => {
+            if (activeComposeTab) void handleActiveComposeTabWindow()
+        },
+    }
+
+    const [shortcutComboMap, setShortcutComboMap] = useState(() => getActiveComboMap())
+    useEffect(() => {
+        const reload = () => setShortcutComboMap(getActiveComboMap())
+        window.addEventListener('guvercin-shortcuts-changed', reload)
+        return () => window.removeEventListener('guvercin-shortcuts-changed', reload)
+    }, [])
+
+    useEffect(() => {
+        const onKeyDown = (event) => {
+            const actionId = matchShortcut(event, shortcutComboMap)
+            if (!actionId) return
+            const action = shortcutActionsRef.current[actionId]
+            if (!action) return
+            event.preventDefault()
+            action()
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [shortcutComboMap])
 
     const activeFolderKey = selectedFolder || 'INBOX'
     const activeFolderInfo = folderInfo(activeFolderKey)

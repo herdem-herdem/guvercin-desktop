@@ -94,9 +94,23 @@ export function OfflineSyncProvider({ children }) {
       }
       await refreshStatus(accountId)
     } catch {
-      
+
     }
   }, [refreshStatus, runSyncNow])
+
+  const attemptImapReconnect = useCallback(async (accountId) => {
+    if (!accountId || !backendReachable || !networkOnline) return false
+    try {
+      const res = await fetch(apiUrl(`/api/mail/${accountId}/connect-stored`), { method: 'POST', cache: 'no-store' })
+      if (res.ok) {
+        await refreshStatus(accountId)
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }, [backendReachable, networkOnline, refreshStatus])
 
   useEffect(() => {
     const accountId = activeAccountId
@@ -139,6 +153,18 @@ export function OfflineSyncProvider({ children }) {
     const timer = setInterval(pollOnce, STATUS_POLL_INTERVAL_MS)
     return () => clearInterval(timer)
   }, [activeAccountId, networkOnline, refreshStatus, runSyncNow])
+
+  useEffect(() => {
+    const accountId = activeAccountId
+    if (!accountId || imapReachable || !networkOnline) return
+
+    const RECONNECT_INTERVAL_MS = 12_000
+    const timer = setInterval(() => {
+      attemptImapReconnect(accountId)
+    }, RECONNECT_INTERVAL_MS)
+
+    return () => clearInterval(timer)
+  }, [activeAccountId, imapReachable, networkOnline, attemptImapReconnect])
 
   const remoteMailAvailable = backendReachable && imapReachable
 
