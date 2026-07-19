@@ -4111,7 +4111,13 @@ function MailSection({
     }, [hydrateComposeDraftFromSavedMail, loadMailContentForDraft, openInlineCompose, openMail, selectedFolder])
 
     const enqueueDelayedSend = useCallback(({ draft, target, onAfterClose, onUndoRestore, onCommitted }) => {
-        const payload = parseComposeBody(draft, accountEmail)
+        let payload
+        try {
+            payload = parseComposeBody(draft, accountEmail)
+        } catch (error) {
+            window.alert(error?.message || 'One or more recipient addresses are invalid.')
+            return false
+        }
         if (payload.to.length + payload.cc.length + payload.bcc.length === 0) {
             window.alert('Please add at least one recipient.')
             return false

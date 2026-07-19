@@ -267,11 +267,6 @@
     cursor: pointer;
 }
 
-.cv-recipient-chip.is-editing {
-    border-color: #f59e0b;
-    background: #fff7d6;
-}
-
 .cv-recipient-chip__label {
     max-width: 100%;
     overflow: hidden;

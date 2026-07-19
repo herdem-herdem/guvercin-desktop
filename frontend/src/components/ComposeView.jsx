@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { buildComposePreviewDocument, escapeHtml } from '../utils/composeHtml.js'
 import { composeRecipientsToString, ensureHtmlDraftSeed } from '../utils/compose.js'
@@ -76,16 +76,8 @@ function ComposeAttachmentList({ attachments, onRemove }) {
 
 function RecipientField({ label, recipients, onChange, placeholder, trailingActions = null }) {
     const [draftToken, setDraftToken] = useState('')
-    const [editingIndex, setEditingIndex] = useState(null)
     const [hoveredIndex, setHoveredIndex] = useState(null)
     const inputRef = useRef(null)
-
-    useEffect(() => {
-        if (editingIndex != null && editingIndex >= recipients.length) {
-            setEditingIndex(null)
-            setDraftToken('')
-        }
-    }, [editingIndex, recipients.length])
 
     const focusInput = useCallback(() => {
         inputRef.current?.focus()
@@ -99,24 +91,12 @@ function RecipientField({ label, recipients, onChange, placeholder, trailingActi
         const parts = splitRecipientDraft(rawValue)
         if (parts.length === 0) {
             setDraftToken('')
-            if (editingIndex != null) setEditingIndex(null)
             return
         }
 
-        const nextRecipients = recipients.slice()
-        if (editingIndex != null) {
-            nextRecipients.splice(editingIndex, 1, parts[0])
-            if (parts.length > 1) {
-                nextRecipients.splice(editingIndex + 1, 0, ...parts.slice(1))
-            }
-        } else {
-            nextRecipients.push(...parts)
-        }
-
-        commitRecipients(nextRecipients)
+        commitRecipients([...recipients, ...parts])
         setDraftToken('')
-        setEditingIndex(null)
-    }, [commitRecipients, draftToken, editingIndex, recipients])
+    }, [commitRecipients, draftToken, recipients])
 
     const handleKeyDown = useCallback((event) => {
         if (event.key === 'Enter' || event.key === 'Tab' || event.key === ',' || event.key === ';') {
@@ -130,11 +110,14 @@ function RecipientField({ label, recipients, onChange, placeholder, trailingActi
         if (event.key === 'Backspace' && !draftToken) {
             event.preventDefault()
             if (recipients.length > 0) {
-                const nextRecipients = recipients.slice(0, -1)
-                commitRecipients(nextRecipients)
+                // Don't drop the chip outright — pull the last one back into the
+                // input as editable text so it can be corrected.
+                const last = recipients[recipients.length - 1] || ''
+                commitRecipients(recipients.slice(0, -1))
+                setDraftToken(last)
             }
         }
-    }, [commitRecipients, draftToken, editingIndex, finalizeToken, recipients])
+    }, [commitRecipients, draftToken, finalizeToken, recipients])
 
     const handleChange = useCallback((event) => {
         const nextValue = event.target.value
@@ -149,26 +132,27 @@ function RecipientField({ label, recipients, onChange, placeholder, trailingActi
     const handleBlur = useCallback(() => {
         if (draftToken.trim()) {
             finalizeToken()
-        } else if (editingIndex != null) {
-            setEditingIndex(null)
         }
-    }, [draftToken, editingIndex, finalizeToken])
+    }, [draftToken, finalizeToken])
 
     const handleChipClick = useCallback((index) => {
-        setDraftToken(recipients[index] || '')
-        setEditingIndex(index)
+        // Clicking a chip deletes it and drops its address back into the input as
+        // free-form text so it can be edited. Any half-typed token already in the
+        // input is committed first so it isn't lost. The chip button's mousedown
+        // is prevented from stealing focus, so the input never blurs mid-swap.
+        const clicked = recipients[index] || ''
+        const remaining = recipients.filter((_, recipientIndex) => recipientIndex !== index)
+        const pending = splitRecipientDraft(draftToken)
+        commitRecipients([...remaining, ...pending])
+        setDraftToken(clicked)
         focusInput()
-    }, [focusInput, recipients])
+    }, [commitRecipients, draftToken, focusInput, recipients])
 
     const handleRemove = useCallback((index) => {
         const nextRecipients = recipients.filter((_, recipientIndex) => recipientIndex !== index)
         commitRecipients(nextRecipients)
-        if (editingIndex === index) {
-            setDraftToken('')
-            setEditingIndex(null)
-        }
         focusInput()
-    }, [commitRecipients, editingIndex, focusInput, recipients])
+    }, [commitRecipients, focusInput, recipients])
 
     return (
         <div className="cv-field cv-field--recipients">
@@ -179,7 +163,8 @@ function RecipientField({ label, recipients, onChange, placeholder, trailingActi
                         <button
                             key={`${recipient}-${index}`}
                             type="button"
-                            className={`cv-recipient-chip ${editingIndex === index ? 'is-editing' : ''}`}
+                            className="cv-recipient-chip"
+                            onMouseDown={(event) => event.preventDefault()}
                             onClick={() => handleChipClick(index)}
                             onMouseEnter={() => setHoveredIndex(index)}
                             onMouseLeave={() => setHoveredIndex((current) => (current === index ? null : current))}
