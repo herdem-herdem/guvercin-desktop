@@ -43,3 +43,11 @@ databases/
 # Assets (Sources no longer needed in repo if SVGs are used)
 *.ai
 *.png
+
+# Licensed fonts (commercial license, not redistributable — see frontend/public/fonts/README.md)
+# HankenGrotesk-*.woff2 is the OFL-licensed default and stays tracked.
+frontend/public/fonts/*.woff
+frontend/public/fonts/*.woff2
+frontend/public/fonts/*.ttf
+frontend/public/fonts/*.otf
+!frontend/public/fonts/HankenGrotesk-*.woff2
