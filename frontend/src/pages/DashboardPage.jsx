@@ -6732,10 +6732,10 @@ function MailSection({
                         )}
                         {!activeTabId && activeRibbonTab === 'help' && (
                             <ul>
-                                <li><button className="db-submenu-main-btn" onClick={() => alert('Help clicked')}>{toolbarMainButtonContent(<img src="/img/icons/settings.svg" className="svg-icon-inline" />, t('Help'))}</button></li>
-                                <li><button className="db-submenu-main-btn" onClick={() => alert('Contact Us clicked')}>{toolbarMainButtonContent(<img src="/img/icons/mail.svg" className="svg-icon-inline" />, t('Contact Us'))}</button></li>
-                                <li><button className="db-submenu-main-btn" onClick={() => alert('Feedback clicked')}>{toolbarMainButtonContent(<img src="/img/icons/new-mail.svg" className="svg-icon-inline" />, t('Feedback'))}</button></li>
-                                <li><button className="db-submenu-main-btn" onClick={() => alert('Report Bug clicked')}>{toolbarMainButtonContent(<img src="/img/icons/notification.svg" className="svg-icon-inline" />, t('Report Bug'))}</button></li>
+                                <li><button className="db-submenu-main-btn" onClick={() => window.location.href = 'mailto:support@guvercin.email'}>{toolbarMainButtonContent(<img src="/img/icons/settings.svg" className="svg-icon-inline" />, t('Help'))}</button></li>
+                                <li><button className="db-submenu-main-btn" onClick={() => window.location.href = 'mailto:hello@guvercin.email'}>{toolbarMainButtonContent(<img src="/img/icons/mail.svg" className="svg-icon-inline" />, t('Contact Us'))}</button></li>
+                                <li><button className="db-submenu-main-btn" onClick={() => window.location.href = 'mailto:hello@guvercin.email'}>{toolbarMainButtonContent(<img src="/img/icons/new-mail.svg" className="svg-icon-inline" />, t('Feedback'))}</button></li>
+                                <li><button className="db-submenu-main-btn" onClick={() => window.location.href = 'mailto:support@guvercin.email'}>{toolbarMainButtonContent(<img src="/img/icons/notification.svg" className="svg-icon-inline" />, t('Report Bug'))}</button></li>
                             </ul>
                         )}
                         {!activeTabId && activeRibbonTab === 'view' && (
