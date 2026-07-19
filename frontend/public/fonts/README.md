@@ -1,48 +1,7 @@
-# Neue Haas Grotesk Fonts
+# Fonts
 
-This directory contains the Neue Haas Grotesk font family files used throughout the Guvercin application.
+Guvercin ships with **Hanken Grotesk** (`HankenGrotesk-latin.woff2`, `HankenGrotesk-latin-ext.woff2`) as its default typeface — SIL Open Font License, free to use and redistribute.
 
-## Font Files Required
+## Using a different font locally
 
-The following font files should be placed in this directory:
-
-### Display Font
-- `NeueHaasGroteskDisplay-Pro.woff2`
-- `NeueHaasGroteskDisplay-Pro.woff`
-- `NeueHaasGroteskDisplay-ProBold.woff2`
-- `NeueHaasGroteskDisplay-ProBold.woff`
-
-### Text Font
-- `NeueHaasGroteskText-Pro.woff2`
-- `NeueHaasGroteskText-Pro.woff`
-- `NeueHaasGroteskText-ProBold.woff2`
-- `NeueHaasGroteskText-ProBold.woff`
-- `NeueHaasGroteskText-ProMedium.woff2`
-- `NeueHaasGroteskText-ProMedium.woff`
-- `NeueHaasGroteskText-ProSemiBold.woff2`
-- `NeueHaasGroteskText-ProSemiBold.woff`
-
-## Where to Get Neue Haas Grotesk
-
-### Option 1: Commercial License (Pro Versions)
-Download from [Lineto.com](https://lineto.com/) - The official source for Neue Haas Grotesk
-
-### Option 2: Free Version
-Download the free version from [GitHub - Neue Haas Grotesk Display](https://github.com/FontBureau/Neue-Haas-Grotesk)
-
-## Font Format Conversion
-
-If you only have TTF or OTF files, use online converters like:
-- [FontForge](https://fontforge.org/) - Free, open-source
-- [CloudConvert](https://cloudconvert.com/) - Online converter
-- [Transfonter](https://transfonter.org/) - Web-based converter
-
-## Setup
-
-Once you have the font files:
-
-1. Convert them to WOFF/WOFF2 format if needed
-2. Place them in this directory (`frontend/public/fonts/`)
-3. The font will be automatically loaded by the application
-
-The fonts will be used as the default throughout the Guvercin application.
+If you own a license for another typeface and want to use it on your own machine, drop the `.woff2`/`.woff` files here and add matching `@font-face` rules in `frontend/src/fonts.css`. This directory is covered by `.gitignore` for any file that isn't `HankenGrotesk-*.woff2`, so a licensed font you add here won't be committed or redistributed with the repo.

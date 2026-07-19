@@ -94,7 +94,7 @@ function App() {
     const savedFont = localStorage.getItem('font')
     const onboardingPaths = ['/login', '/theme', '/offline-setup', '/not_auth', '/settings', '/account-settings']
 
-    const defaultFontStack = '"Hanken Grotesk", "Neue Haas Grotesk Text Pro", "Neue Haas Grotesk Display Pro", "Helvetica Neue", Helvetica, Arial, sans-serif'
+    const defaultFontStack = '"Hanken Grotesk", "Helvetica Neue", Helvetica, Arial, sans-serif'
     const chosenFont = tempFont || savedFont
     let fontToUse = chosenFont ? `"${chosenFont}", ${defaultFontStack}` : defaultFontStack
 

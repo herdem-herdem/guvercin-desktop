@@ -24,7 +24,7 @@ body.no-select *:not(input):not(textarea) {
 }
 
 body {
-  font-family: "Hanken Grotesk", "Neue Haas Grotesk Text Pro", "Neue Haas Grotesk Display Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "Hanken Grotesk", "Helvetica Neue", Helvetica, Arial, sans-serif;
   background: var(--shell-bg, var(--c-bg));
   display: flex;
   justify-content: center;
