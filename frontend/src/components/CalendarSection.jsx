@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestNewCompose } from '../utils/mailtoInbox.js'
+import { requestNewTask, subscribeNewEvent } from '../utils/crossLinks.js'
 import {
   createCalendar, createEvent, deleteCalendar, deleteEvent, emptyEvent, exportIcs,
   fetchCalendars, fetchEvents, formatIsoLocalDate, formatIsoLocalDateTime, getEvent,
@@ -255,6 +256,20 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
     setSelected(inst)
     setDraft(null)
   }, [])
+
+  // Other workspaces (Contacts, Mail, Todo) can ask us to open a pre-filled new
+  // event via crossLinks.requestNewEvent.
+  useEffect(() => subscribeNewEvent((prefill) => startCreate(prefill)), [startCreate])
+
+  // Turn an event into a follow-up task in the Todo workspace.
+  const makeTaskFromEvent = useCallback((inst) => {
+    const startDate = parseIsoLocal(inst.card.start)
+    requestNewTask({
+      title: inst.card.title || t('Untitled event'),
+      notes: inst.card.location ? `${t('Location')}: ${inst.card.location}` : '',
+      due: startDate ? formatIsoLocalDate(startDate) : '',
+    })
+  }, [t])
 
   const startEdit = useCallback(async (inst) => {
     // Recurring instances only carry the occurrence's times; load the master so
@@ -557,7 +572,8 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
       {selected && !draft && (
         <EventDetail inst={selected} locale={locale} t={t} calColorMap={calColorMap}
           onClose={() => setSelected(null)} onEdit={() => startEdit(selected)}
-          onDelete={() => handleDelete(selected)} onEmail={() => emailAttendees(selected)} />
+          onDelete={() => handleDelete(selected)} onEmail={() => emailAttendees(selected)}
+          onNewTask={() => { makeTaskFromEvent(selected); setSelected(null) }} />
       )}
 
       {/* ── Editor modal ── */}
@@ -855,7 +871,7 @@ function AgendaView({ events, locale, t, onEventClick, onEmptyNew }) {
 
 // ─────────────────────────── Event detail popover ───────────────────────────
 
-function EventDetail({ inst, locale, t, onClose, onEdit, onDelete, onEmail }) {
+function EventDetail({ inst, locale, t, onClose, onEdit, onDelete, onEmail, onNewTask }) {
   const card = inst.card
   const s = eventStart(inst); const e = eventEnd(inst)
   const dateText = card.allDay
@@ -894,6 +910,7 @@ function EventDetail({ inst, locale, t, onClose, onEdit, onDelete, onEmail }) {
         <div className="cal-detail-actions">
           <button className="cal-btn cal-btn--primary" onClick={onEdit}>{t('Edit')}</button>
           {attendees.some((a) => a.email) && <button className="cal-btn" onClick={onEmail}>{t('Email attendees')}</button>}
+          <button className="cal-btn" onClick={onNewTask}>{t('New task')}</button>
           <button className="cal-btn cal-btn--danger" onClick={onDelete}>{t('Delete')}</button>
         </div>
       </div>

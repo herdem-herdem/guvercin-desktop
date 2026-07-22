@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { formatIsoLocalDate, parseIsoLocal } from '../utils/calendarApi.js'
+import { formatIsoLocalDate, formatIsoLocalDateTime, parseIsoLocal } from '../utils/calendarApi.js'
+import { requestNewEvent, subscribeNewTask } from '../utils/crossLinks.js'
 import {
   clearCompleted, createTask, createTaskList, deleteTask, deleteTaskList, emptyTask,
   fetchTaskLists, fetchTasks, googleStatus, googleSyncTasks, normalizeTask, updateTask,
@@ -147,6 +148,28 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
     if (view.kind === 'important') card.starred = true
     setDraft(card); setDraftId(null)
   }, [activeListId, view])
+
+  // Other workspaces (Contacts, Mail, Calendar) can ask us to open a pre-filled
+  // new task via crossLinks.requestNewTask.
+  useEffect(() => subscribeNewTask((prefill) => {
+    const card = emptyTask()
+    Object.assign(card, prefill)
+    if (card.listId == null) card.listId = activeListId
+    setDraft(normalizeTask(card))
+    setDraftId(null)
+  }), [activeListId])
+
+  // Turn a task into a calendar event (on its due date, or today).
+  const addTaskToCalendar = useCallback((card) => {
+    const due = parseIsoLocal(card.due) || new Date()
+    requestNewEvent({
+      title: card.title,
+      description: card.notes || '',
+      allDay: !card.hasDueTime,
+      start: card.hasDueTime ? formatIsoLocalDateTime(due) : formatIsoLocalDate(due),
+      end: card.hasDueTime ? formatIsoLocalDateTime(new Date(due.getTime() + 3600000)) : formatIsoLocalDate(due),
+    })
+  }, [])
 
   const handleSave = useCallback(async () => {
     if (!draft) return
@@ -427,6 +450,7 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
       {draft && (
         <TaskEditor t={t} draft={draft} setDraft={setDraft} saving={saving} isNew={!draftId} lists={lists}
           onCancel={() => { setDraft(null); setDraftId(null) }} onSave={handleSave}
+          onAddToCalendar={() => addTaskToCalendar(draft)}
           onDelete={draftId ? () => handleDelete(null) : null} />
       )}
 
@@ -483,7 +507,7 @@ function splitDue(due) {
   }
 }
 
-function TaskEditor({ t, draft, setDraft, saving, isNew, lists, onCancel, onSave, onDelete }) {
+function TaskEditor({ t, draft, setDraft, saving, isNew, lists, onCancel, onSave, onDelete, onAddToCalendar }) {
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
   const { date, time } = splitDue(draft.due)
   const [newSub, setNewSub] = useState('')
@@ -571,9 +595,12 @@ function TaskEditor({ t, draft, setDraft, saving, isNew, lists, onCancel, onSave
           </div>
         </div>
 
-        {onDelete && (
+        {(onDelete || onAddToCalendar) && (
           <div className="td-editor-footer">
-            <button className="td-btn td-btn--danger" onClick={onDelete}>{t('Delete task')}</button>
+            {onAddToCalendar && draft.title.trim() && (
+              <button className="td-btn" onClick={onAddToCalendar}>{t('Add to calendar')}</button>
+            )}
+            {onDelete && <button className="td-btn td-btn--danger td-footer-right" onClick={onDelete}>{t('Delete task')}</button>}
           </div>
         )}
       </div>

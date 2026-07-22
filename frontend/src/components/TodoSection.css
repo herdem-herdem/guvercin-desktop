@@ -172,7 +172,8 @@
 .td-editor-title { font-size: 17px; font-weight: 700; }
 .td-editor-actions { display: flex; gap: 8px; }
 .td-editor-body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
-.td-editor-footer { padding: 12px 18px; border-top: 1px solid var(--c-border-1); }
+.td-editor-footer { padding: 12px 18px; border-top: 1px solid var(--c-border-1); display: flex; gap: 8px; align-items: center; }
+.td-footer-right { margin-left: auto; }
 
 .td-input, .td-select, .td-textarea {
   border: 1px solid var(--c-border-2); background: var(--c-surface-2); color: var(--c-text-1);

@@ -53,6 +53,7 @@ import {
 } from '../utils/mailHeaders.js'
 import { clearAccountSession } from '../utils/accountStorage.js'
 import { subscribeMailto, requestNewCompose } from '../utils/mailtoInbox.js'
+import { subscribeNavigate, requestNewEvent, requestNewTask } from '../utils/crossLinks.js'
 import { subscribeEml } from '../utils/emlInbox.js'
 import { notifyNewMail, setUnreadBadge, subscribeNotificationOpen, dismissNotificationForMail } from '../utils/notifications.js'
 import { getNotificationSettings, shouldNotifyForMail } from '../utils/notificationSettings.js'
@@ -4079,6 +4080,18 @@ function MailSection({
         }, { preserveExisting: false })
     }, [accountEmail, openInlineCompose])
 
+    // Cross-feature navigation: let Contacts/Mail hand work to Calendar/Todo by
+    // switching the active workspace (the target section then drains its own
+    // prefill queue). See utils/crossLinks.js.
+    useEffect(() => {
+        const unsubscribe = subscribeNavigate((section) => {
+            if (['mail', 'calendar', 'contacts', 'todo'].includes(section)) {
+                setActiveSection(section)
+            }
+        })
+        return unsubscribe
+    }, [])
+
     // Handle `mailto:` deep links: open a prefilled compose surface. Drains any
     // links queued before the dashboard mounted (cold start) and receives new
     // ones while running.
@@ -6139,6 +6152,36 @@ function MailSection({
         await composeForwardDraft(actionableMails)
     }
 
+    // Cross-feature: turn the selected email into a calendar event or a task.
+    const parseSenderEmail = (from) => {
+        const bracket = /<([^>]+)>/.exec(from || '')
+        if (bracket) return bracket[1].trim()
+        const bare = /[\w.+-]+@[\w.-]+\.\w+/.exec(from || '')
+        return bare ? bare[0] : ''
+    }
+    const parseSenderName = (from) => {
+        const str = (from || '').trim()
+        const lt = str.indexOf('<')
+        return lt > 0 ? str.slice(0, lt).trim().replace(/^"|"$/g, '') : ''
+    }
+    const handleMailToCalendar = () => {
+        const mail = actionableMails[0] || selectedMail
+        if (!mail) return
+        const email = parseSenderEmail(mail.from)
+        requestNewEvent({
+            title: mail.subject || '',
+            attendees: email ? [{ name: parseSenderName(mail.from), email, status: '' }] : [],
+        })
+    }
+    const handleMailToTask = () => {
+        const mail = actionableMails[0] || selectedMail
+        if (!mail) return
+        requestNewTask({
+            title: mail.subject || '',
+            notes: mail.from ? `${t('From')}: ${mail.from}` : '',
+        })
+    }
+
     const handleMailItemMenuDelete = async () => {
         if (!mailItemMenu?.mail) return
         await deleteMailsOptimistic([mailItemMenu.mail.id])
@@ -6649,6 +6692,8 @@ function MailSection({
                                         {toolbarMainButtonContent(<img src="/img/icons/forward.svg" className="svg-icon-inline" />, 'Forward')}
                                     </button>
                                 </li>
+                                <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleMailToCalendar}>{toolbarMainButtonContent('📅', t('Add to Calendar'))}</button></li>
+                                <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleMailToTask}>{toolbarMainButtonContent('✅', t('New task'))}</button></li>
                                 <li>
                                     <button
                                         className="db-submenu-main-btn"

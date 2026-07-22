@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestNewCompose } from '../utils/mailtoInbox.js'
+import { requestNewEvent, requestNewTask } from '../utils/crossLinks.js'
 import {
   createContact, createList, deleteContact, deleteList, displayNameOf, emptyCard,
   exportVcf, fetchContacts, fetchLists, fetchSuggestions, googleStatus, googleSyncContacts,
@@ -278,6 +279,24 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
     if (email) requestNewCompose({ to: email })
   }, [])
 
+  // Cross-feature: hand a contact off to Calendar or Todo.
+  const newEventForContact = useCallback((rec) => {
+    const email = primaryEmailOf(rec.card)
+    const name = displayNameOf(rec.card)
+    requestNewEvent({
+      title: name ? t('Meeting with {{name}}', { name }) : '',
+      attendees: email ? [{ name, email, status: '' }] : [],
+    })
+  }, [t])
+  const newTaskForContact = useCallback((rec) => {
+    const name = displayNameOf(rec.card)
+    const email = primaryEmailOf(rec.card)
+    requestNewTask({
+      title: name ? t('Follow up with {{name}}', { name }) : '',
+      notes: email,
+    })
+  }, [t])
+
   // ── List management ──
   const submitCreateList = useCallback(async (name) => {
     const trimmed = (name || '').trim()
@@ -464,6 +483,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
               onEdit={startEdit} onDelete={() => handleDelete(selected)}
               onEmail={() => emailContact(selected)} onExport={() => handleExportOne(selected)}
               onToggleFavorite={() => handleToggleFavorite(selected)}
+              onNewEvent={() => newEventForContact(selected)} onNewTask={() => newTaskForContact(selected)}
               onOpenList={(name) => { const l = lists.find((x) => x.name === name); if (l) selectList(l.list_id) }}
             />
           )}
@@ -575,7 +595,7 @@ function Field({ label, children }) {
   )
 }
 
-function ContactView({ rec, t, onEdit, onDelete, onEmail, onExport, onToggleFavorite, onOpenList }) {
+function ContactView({ rec, t, onEdit, onDelete, onEmail, onExport, onToggleFavorite, onNewEvent, onNewTask, onOpenList }) {
   const card = rec.card
   const org = card.organization || {}
   const person = card.personal || {}
@@ -605,6 +625,8 @@ function ContactView({ rec, t, onEdit, onDelete, onEmail, onExport, onToggleFavo
 
       <div className="cs-view-actions">
         <button className="cs-btn cs-btn--primary" disabled={!hasEmail} onClick={onEmail}>{t('Send email')}</button>
+        <button className="cs-btn" onClick={onNewEvent}>{t('New event')}</button>
+        <button className="cs-btn" onClick={onNewTask}>{t('New task')}</button>
         <button className="cs-btn" onClick={onEdit}>{t('Edit')}</button>
         <button className="cs-btn" onClick={onExport}>{t('Export')}</button>
         <button className="cs-btn cs-btn--danger" onClick={onDelete}>{t('Delete')}</button>
