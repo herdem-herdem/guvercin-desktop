@@ -1047,6 +1047,12 @@ body.resizing * {
   padding: 12px;
 }
 
+/* Full-bleed sections (e.g. Contacts) manage their own edges like the mail view,
+   so the container padding would leave gaps on the right/bottom. */
+.db-main-container--flush {
+  padding: 0;
+}
+
 .db-content-area {
   display: flex;
   flex-direction: column;

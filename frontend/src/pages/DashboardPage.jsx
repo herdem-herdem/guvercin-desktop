@@ -13,6 +13,7 @@ import { useTheme } from '../context/ThemeContext.jsx'
 import Avatar from '../components/Avatar.jsx'
 import ComposeMailContent from '../components/ComposeMailContent.jsx'
 import MailHeadersPanel from '../components/MailHeadersPanel.jsx'
+import ContactsSection from '../components/ContactsSection.jsx'
 import {
     buildDraftSavePayload,
     getComposeTitle,
@@ -3086,11 +3087,11 @@ const DashboardPage = () => {
     ) : (
         <LayoutFrame region={mainBarRegion} bar={mainBarNode}>
             <LayoutFrame region={appsBarRegion} bar={appsBarNode}>
-                <div className="db-main-container">
+                <div className={`db-main-container${activeSection === 'contacts' ? ' db-main-container--flush' : ''}`}>
                     <div className="db-content-area">
                         <div className="db-section-area">
                             {activeSection === 'calendar' && <CalendarSection />}
-                            {activeSection === 'contacts' && <ContactsSection />}
+                            {activeSection === 'contacts' && <ContactsSection accountId={accountId} toolbarStyle={toolbarStyle} />}
                             {activeSection === 'todo' && <TodoSection />}
                         </div>
                     </div>
@@ -8345,15 +8346,6 @@ function CalendarSection() {
         <div className="db-section-panel">
             <h2>Calendar</h2>
             <p>Calendar section will be displayed here.</p>
-        </div>
-    )
-}
-
-function ContactsSection() {
-    return (
-        <div className="db-section-panel">
-            <h2>Contacts</h2>
-            <p>Your contacts will be listed here.</p>
         </div>
     )
 }

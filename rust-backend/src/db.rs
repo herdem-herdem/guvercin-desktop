@@ -688,6 +688,51 @@ async fn init_user_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await;
 
+    // Rich, Outlook-parity contact fields. The full structured contact (multiple
+    // emails/phones/addresses, organization, personal details, photo, …) lives in
+    // `card_json`; the flat columns below are denormalized copies kept in sync on
+    // every write so listing, sorting and searching stay cheap.
+    for stmt in [
+        "ALTER TABLE contacts ADD COLUMN uid TEXT",
+        "ALTER TABLE contacts ADD COLUMN first_name TEXT",
+        "ALTER TABLE contacts ADD COLUMN last_name TEXT",
+        "ALTER TABLE contacts ADD COLUMN company TEXT",
+        "ALTER TABLE contacts ADD COLUMN job_title TEXT",
+        "ALTER TABLE contacts ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE contacts ADD COLUMN categories TEXT",
+        "ALTER TABLE contacts ADD COLUMN card_json TEXT",
+        "ALTER TABLE contacts ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
+        "ALTER TABLE contacts ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP",
+    ] {
+        let _ = sqlx::query(stmt).execute(pool).await;
+    }
+
+    // Contact lists (a.k.a. groups/tags). A list is a named bucket; membership is
+    // a many-to-many join. List names double as vCard CATEGORIES on import/export.
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS contact_lists (
+            list_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL UNIQUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS contact_list_members (
+            list_id    INTEGER NOT NULL REFERENCES contact_lists(list_id) ON DELETE CASCADE,
+            contact_id INTEGER NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,
+            PRIMARY KEY (list_id, contact_id)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     let _ = sqlx::query("DROP TABLE IF EXISTS ai").execute(pool).await;
 
     sqlx::query(

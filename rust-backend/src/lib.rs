@@ -1,5 +1,6 @@
 mod avatar;
 mod avatar_routes;
+mod contacts_routes;
 mod crypto;
 mod db;
 pub mod error;
@@ -129,6 +130,37 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
             get(routes::get_account_settings).patch(routes::update_account_settings),
         )
         .route("/api/account/:account_id", delete(routes::delete_account))
+        .route(
+            "/api/contacts/:account_id",
+            get(contacts_routes::list_contacts).post(contacts_routes::create_contact),
+        )
+        .route(
+            "/api/contacts/:account_id/suggestions",
+            get(contacts_routes::suggest_contacts),
+        )
+        .route(
+            "/api/contacts/:account_id/lists",
+            get(contacts_routes::get_lists).post(contacts_routes::create_list),
+        )
+        .route(
+            "/api/contacts/:account_id/lists/:list_id",
+            axum::routing::put(contacts_routes::rename_list)
+                .delete(contacts_routes::delete_list),
+        )
+        .route(
+            "/api/contacts/:account_id/import",
+            post(contacts_routes::import_contacts).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
+        .route(
+            "/api/contacts/:account_id/export",
+            get(contacts_routes::export_contacts),
+        )
+        .route(
+            "/api/contacts/:account_id/:contact_id",
+            get(contacts_routes::get_contact)
+                .put(contacts_routes::update_contact)
+                .delete(contacts_routes::delete_contact),
+        )
         .route("/api/avatar/:account_id", get(avatar_routes::get_avatar))
         .route(
             "/api/security/settings",
