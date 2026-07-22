@@ -14,6 +14,7 @@ import Avatar from '../components/Avatar.jsx'
 import ComposeMailContent from '../components/ComposeMailContent.jsx'
 import MailHeadersPanel from '../components/MailHeadersPanel.jsx'
 import ContactsSection from '../components/ContactsSection.jsx'
+import CalendarSection from '../components/CalendarSection.jsx'
 import {
     buildDraftSavePayload,
     getComposeTitle,
@@ -3087,10 +3088,10 @@ const DashboardPage = () => {
     ) : (
         <LayoutFrame region={mainBarRegion} bar={mainBarNode}>
             <LayoutFrame region={appsBarRegion} bar={appsBarNode}>
-                <div className={`db-main-container${activeSection === 'contacts' ? ' db-main-container--flush' : ''}`}>
+                <div className={`db-main-container${(activeSection === 'contacts' || activeSection === 'calendar') ? ' db-main-container--flush' : ''}`}>
                     <div className="db-content-area">
                         <div className="db-section-area">
-                            {activeSection === 'calendar' && <CalendarSection />}
+                            {activeSection === 'calendar' && <CalendarSection accountId={accountId} toolbarStyle={toolbarStyle} />}
                             {activeSection === 'contacts' && <ContactsSection accountId={accountId} toolbarStyle={toolbarStyle} />}
                             {activeSection === 'todo' && <TodoSection />}
                         </div>
@@ -8338,15 +8339,6 @@ function MailSection({
                 </div>
             )}
         </React.Fragment>
-    )
-}
-
-function CalendarSection() {
-    return (
-        <div className="db-section-panel">
-            <h2>Calendar</h2>
-            <p>Calendar section will be displayed here.</p>
-        </div>
     )
 }
 

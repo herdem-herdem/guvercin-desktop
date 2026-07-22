@@ -1,5 +1,6 @@
 mod avatar;
 mod avatar_routes;
+mod calendar_routes;
 mod contacts_routes;
 mod crypto;
 mod db;
@@ -160,6 +161,33 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
             get(contacts_routes::get_contact)
                 .put(contacts_routes::update_contact)
                 .delete(contacts_routes::delete_contact),
+        )
+        .route(
+            "/api/calendar/:account_id/events",
+            get(calendar_routes::list_events).post(calendar_routes::create_event),
+        )
+        .route(
+            "/api/calendar/:account_id/events/:event_id",
+            get(calendar_routes::get_event)
+                .put(calendar_routes::update_event)
+                .delete(calendar_routes::delete_event),
+        )
+        .route(
+            "/api/calendar/:account_id/calendars",
+            get(calendar_routes::get_calendars).post(calendar_routes::create_calendar),
+        )
+        .route(
+            "/api/calendar/:account_id/calendars/:calendar_id",
+            axum::routing::put(calendar_routes::update_calendar)
+                .delete(calendar_routes::delete_calendar),
+        )
+        .route(
+            "/api/calendar/:account_id/import",
+            post(calendar_routes::import_events).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
+        .route(
+            "/api/calendar/:account_id/export",
+            get(calendar_routes::export_events),
         )
         .route("/api/avatar/:account_id", get(avatar_routes::get_avatar))
         .route(

@@ -1051,5 +1051,59 @@ async fn init_user_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    // Calendars (a.k.a. calendar collections). Each has a display name and a color;
+    // events belong to exactly one calendar. A default calendar is created lazily
+    // the first time the calendar is opened (see calendar_routes).
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS calendars (
+            calendar_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            color       TEXT NOT NULL DEFAULT '#246bce',
+            is_visible  INTEGER NOT NULL DEFAULT 1,
+            is_default  INTEGER NOT NULL DEFAULT 0,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Events. The full structured event (recurrence, attendees, reminders, notes,
+    // …) lives in `event_json`; the flat columns below are denormalized copies kept
+    // in sync on every write so range queries and sorting stay cheap and never have
+    // to parse JSON per row. `start_ms`/`end_ms` are naive wall-clock epoch millis
+    // (the ISO local time parsed as if UTC) so the frontend can compute window
+    // bounds the same way without timezone drift.
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS events (
+            event_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            calendar_id  INTEGER REFERENCES calendars(calendar_id) ON DELETE CASCADE,
+            uid          TEXT,
+            title        TEXT,
+            location     TEXT,
+            all_day      INTEGER NOT NULL DEFAULT 0,
+            start_ms     INTEGER NOT NULL DEFAULT 0,
+            end_ms       INTEGER NOT NULL DEFAULT 0,
+            recurs       INTEGER NOT NULL DEFAULT 0,
+            recur_until_ms INTEGER,
+            event_json   TEXT,
+            created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_ms)")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_events_calendar ON events(calendar_id)")
+        .execute(pool)
+        .await;
+
     Ok(())
 }
