@@ -180,3 +180,21 @@ export async function exportIcs(accountId, { ids = [], calendars = [] } = {}) {
   if (!res.ok) throw new Error(`Export failed (${res.status})`)
   return res.text()
 }
+
+// ── Google ──
+
+// Whether the account can sync with Google (signed in with Google + client configured).
+export async function googleStatus(accountId) {
+  try {
+    const res = await fetch(apiUrl(`/api/google/${accountId}/status`))
+    if (!res.ok) return { available: false }
+    return res.json()
+  } catch {
+    return { available: false }
+  }
+}
+
+export async function googleSyncCalendar(accountId) {
+  const res = await fetch(apiUrl(`/api/calendar/${accountId}/google-sync`), { method: 'POST' })
+  return jsonOrThrow(res)
+}

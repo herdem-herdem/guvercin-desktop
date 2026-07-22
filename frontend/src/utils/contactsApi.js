@@ -185,3 +185,21 @@ export async function fetchSuggestions(accountId) {
     return []
   }
 }
+
+// ── Google ──
+
+// Whether the account can sync with Google (signed in with Google + client configured).
+export async function googleStatus(accountId) {
+  try {
+    const res = await fetch(apiUrl(`/api/google/${accountId}/status`))
+    if (!res.ok) return { available: false }
+    return res.json()
+  } catch {
+    return { available: false }
+  }
+}
+
+export async function googleSyncContacts(accountId) {
+  const res = await fetch(apiUrl(`/api/contacts/${accountId}/google-sync`), { method: 'POST' })
+  return jsonOrThrow(res)
+}

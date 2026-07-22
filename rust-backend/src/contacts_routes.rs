@@ -321,6 +321,22 @@ async fn fetch_record(pool: &SqlitePool, id: i64) -> Result<Option<ContactRecord
     Ok(row.map(|r| row_to_record(&r)))
 }
 
+/// Upsert a contact keyed on its stored UID — used by external (Google) sync so
+/// re-running a sync updates the same rows instead of creating duplicates.
+pub async fn upsert_contact_by_uid(pool: &SqlitePool, card: &ContactCard) -> Result<i64, AppError> {
+    let existing: Option<i64> = if card.uid.trim().is_empty() {
+        None
+    } else {
+        sqlx::query_scalar("SELECT contact_id FROM contacts WHERE uid = ? LIMIT 1")
+            .bind(&card.uid)
+            .fetch_optional(pool)
+            .await?
+    };
+    let id = upsert_card(pool, existing, card).await?;
+    reconcile_membership(pool, id, &card.categories).await?;
+    Ok(id)
+}
+
 // ─────────────────────────── Handlers ───────────────────────────
 
 #[derive(Deserialize)]

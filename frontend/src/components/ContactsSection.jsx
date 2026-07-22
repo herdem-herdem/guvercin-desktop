@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { requestNewCompose } from '../utils/mailtoInbox.js'
 import {
   createContact, createList, deleteContact, deleteList, displayNameOf, emptyCard,
-  exportVcf, fetchContacts, fetchLists, fetchSuggestions, importVcf, normalizeCard,
-  primaryEmailOf, primaryPhoneOf, renameList, updateContact,
+  exportVcf, fetchContacts, fetchLists, fetchSuggestions, googleStatus, googleSyncContacts,
+  importVcf, normalizeCard, primaryEmailOf, primaryPhoneOf, renameList, updateContact,
 } from '../utils/contactsApi.js'
 import './ContactsSection.css'
 
@@ -83,6 +83,8 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
   const [toasts, setToasts] = useState([])
   const [creatingList, setCreatingList] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
+  const [googleAvailable, setGoogleAvailable] = useState(false)
+  const [syncingGoogle, setSyncingGoogle] = useState(false)
   const fileInputRef = useRef(null)
 
   const pushToast = useCallback((text, type = 'info') => {
@@ -122,6 +124,13 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
   }, [reload, search])
 
   useEffect(() => { reloadLists() }, [reloadLists])
+
+  useEffect(() => {
+    if (!accountId) { setGoogleAvailable(false); return }
+    let alive = true
+    googleStatus(accountId).then((s) => { if (alive) setGoogleAvailable(!!s.available) }).catch(() => {})
+    return () => { alive = false }
+  }, [accountId])
 
   const refreshAll = useCallback(async () => {
     await Promise.all([reload(), reloadLists()])
@@ -243,6 +252,19 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
     }
   }, [accountId, pushToast])
 
+  const handleGoogleSync = useCallback(async () => {
+    setSyncingGoogle(true)
+    try {
+      const r = await googleSyncContacts(accountId)
+      await refreshAll()
+      pushToast(t('Synced {{n}} contacts from Google', { n: r.contacts || 0 }))
+    } catch (e) {
+      pushToast(e.message || 'Google sync failed', 'error')
+    } finally {
+      setSyncingGoogle(false)
+    }
+  }, [accountId, refreshAll, pushToast, t])
+
   const handleExportOne = useCallback(async (rec) => {
     try {
       downloadText(slugifyFilename(displayNameOf(rec.card)), await exportVcf(accountId, [rec.id]))
@@ -332,6 +354,10 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
           <li className="cs-toolbar-sep" aria-hidden="true" />
           <li><button className="db-submenu-main-btn" onClick={() => fileInputRef.current?.click()}>{btn(icon('folder'), t('Import'))}</button></li>
           <li><button className="db-submenu-main-btn" onClick={handleExportAll}>{btn(icon('save'), t('Export'))}</button></li>
+          {googleAvailable && <li className="cs-toolbar-sep" aria-hidden="true" />}
+          {googleAvailable && (
+            <li><button className="db-submenu-main-btn" onClick={handleGoogleSync} disabled={syncingGoogle}>{btn(icon('online'), syncingGoogle ? t('Syncing…') : t('Sync with Google'))}</button></li>
+          )}
         </ul>
       </div>
 

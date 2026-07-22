@@ -5,6 +5,7 @@ mod contacts_routes;
 mod crypto;
 mod db;
 pub mod error;
+mod google_sync;
 mod i18n;
 mod imap_client;
 mod imap_session;
@@ -188,6 +189,18 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
         .route(
             "/api/calendar/:account_id/export",
             get(calendar_routes::export_events),
+        )
+        .route(
+            "/api/calendar/:account_id/google-sync",
+            post(google_sync::sync_calendar),
+        )
+        .route(
+            "/api/contacts/:account_id/google-sync",
+            post(google_sync::sync_contacts),
+        )
+        .route(
+            "/api/google/:account_id/status",
+            get(google_sync::google_status),
         )
         .route("/api/avatar/:account_id", get(avatar_routes::get_avatar))
         .route(

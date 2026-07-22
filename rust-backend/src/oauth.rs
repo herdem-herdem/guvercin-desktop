@@ -39,9 +39,12 @@ const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 const USERINFO_ENDPOINT: &str = "https://openidconnect.googleapis.com/v1/userinfo";
 
-/// Full mailbox access (required for IMAP/SMTP), plus identity to learn the
-/// address we just authorized.
-const SCOPES: &str = "https://mail.google.com/ openid email profile";
+/// Full mailbox access (required for IMAP/SMTP), Calendar and Contacts (for the
+/// optional one-way sync in `google_sync`), plus identity to learn the address we
+/// just authorized. Existing accounts keep their old (mail-only) refresh token
+/// until the user signs in again — Calendar/Contacts sync simply reports that a
+/// reconnect is needed until then.
+const SCOPES: &str = "https://mail.google.com/ https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/contacts openid email profile";
 
 /// Gmail connection defaults used when creating an account.
 pub const GMAIL_IMAP_HOST: &str = "imap.gmail.com";

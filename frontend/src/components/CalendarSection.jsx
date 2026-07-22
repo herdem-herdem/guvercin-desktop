@@ -4,6 +4,7 @@ import { requestNewCompose } from '../utils/mailtoInbox.js'
 import {
   createCalendar, createEvent, deleteCalendar, deleteEvent, emptyEvent, exportIcs,
   fetchCalendars, fetchEvents, formatIsoLocalDate, formatIsoLocalDateTime, getEvent,
+  googleStatus, googleSyncCalendar,
   importIcs, naiveMsLocal, normalizeEvent, parseIsoLocal, updateCalendar, updateEvent,
 } from '../utils/calendarApi.js'
 import './CalendarSection.css'
@@ -61,6 +62,8 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   const [toasts, setToasts] = useState([])
   const [creatingCal, setCreatingCal] = useState(false)
   const [renamingCal, setRenamingCal] = useState(null)
+  const [googleAvailable, setGoogleAvailable] = useState(false)
+  const [syncingGoogle, setSyncingGoogle] = useState(false)
   const fileInputRef = useRef(null)
   const firedReminders = useRef(new Set())
   const reminderTimers = useRef([])
@@ -137,6 +140,13 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
     const id = setTimeout(reloadEvents, search ? 220 : 0)
     return () => clearTimeout(id)
   }, [reloadEvents, search])
+
+  useEffect(() => {
+    if (!accountId) { setGoogleAvailable(false); return }
+    let alive = true
+    googleStatus(accountId).then((s) => { if (alive) setGoogleAvailable(!!s.available) }).catch(() => {})
+    return () => { alive = false }
+  }, [accountId])
 
   const refreshAll = useCallback(async () => {
     await Promise.all([reloadEvents(), reloadCalendars()])
@@ -341,6 +351,19 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
     }
   }, [accountId, pushToast])
 
+  const handleGoogleSync = useCallback(async () => {
+    setSyncingGoogle(true)
+    try {
+      const r = await googleSyncCalendar(accountId)
+      await refreshAll()
+      pushToast(t('Synced {{n}} events from Google Calendar', { n: r.events || 0 }))
+    } catch (e) {
+      pushToast(e.message || 'Google sync failed', 'error')
+    } finally {
+      setSyncingGoogle(false)
+    }
+  }, [accountId, refreshAll, pushToast, t])
+
   // ── Calendar management ──
   const submitCreateCal = useCallback(async (name) => {
     const trimmed = (name || '').trim()
@@ -447,6 +470,10 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
           <li className="cal-toolbar-sep" aria-hidden="true" />
           <li><button className="db-submenu-main-btn" onClick={() => fileInputRef.current?.click()}>{btn(icon('folder'), t('Import'))}</button></li>
           <li><button className="db-submenu-main-btn" onClick={handleExport}>{btn(icon('save'), t('Export'))}</button></li>
+          {googleAvailable && <li className="cal-toolbar-sep" aria-hidden="true" />}
+          {googleAvailable && (
+            <li><button className="db-submenu-main-btn" onClick={handleGoogleSync} disabled={syncingGoogle}>{btn(icon('online'), syncingGoogle ? t('Syncing…') : t('Sync with Google'))}</button></li>
+          )}
         </ul>
       </div>
 
