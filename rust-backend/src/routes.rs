@@ -676,7 +676,7 @@ pub async fn delete_account(
 ) -> Result<impl IntoResponse, AppError> {
     let pool = &state.ensure_ready(false).await?.general_pool;
 
-    let row = sqlx::query("SELECT auth_token FROM accounts WHERE account_id = ?")
+    let row = sqlx::query("SELECT auth_token, provider_type FROM accounts WHERE account_id = ?")
         .bind(account_id)
         .fetch_optional(pool)
         .await?;
@@ -685,13 +685,22 @@ pub async fn delete_account(
 
     use sqlx::Row;
     let stored_pw: Option<String> = row.try_get("auth_token").ok().flatten();
+    let provider: Option<String> = row.try_get("provider_type").ok().flatten();
 
-    let password = payload.password.as_deref().unwrap_or("");
-    let stored_pw_str = stored_pw.as_deref().unwrap_or("");
+    // Gmail accounts authenticate via OAuth, so there is no user-facing password
+    // to confirm against; the stored token is an opaque refresh token.
+    let is_gmail = provider.as_deref() == Some(crate::oauth::PROVIDER_GMAIL);
 
-    if stored_pw_str != password {
-        return Err(AppError::BadRequest(tr("Incorrect password")));
+    if !is_gmail {
+        let password = payload.password.as_deref().unwrap_or("");
+        let stored_pw_str = stored_pw.as_deref().unwrap_or("");
+
+        if stored_pw_str != password {
+            return Err(AppError::BadRequest(tr("Incorrect password")));
+        }
     }
+
+    crate::oauth::invalidate_account_token(account_id);
 
     sqlx::query("DELETE FROM accounts WHERE account_id = ?")
         .bind(account_id)

@@ -1,4 +1,20 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
+
+/// A mailbox as reported by the IMAP `LIST` command, enriched with its
+/// SPECIAL-USE role (RFC 6154) and whether it can actually be selected.
+///
+/// The role lets the UI recognise folders like Sent/Trash/All Mail regardless
+/// of their (possibly localised) name, and `selectable == false` marks pure
+/// container folders such as Gmail's `[Gmail]` parent.
+#[derive(Serialize, Clone)]
+pub struct MailboxEntry {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    pub selectable: bool,
+}
 
 #[derive(Serialize, Clone)]
 pub struct MailPreview {
@@ -31,6 +47,10 @@ pub struct MailboxListResponse {
     pub mailboxes: Vec<String>,
     pub folders: Vec<String>,
     pub labels: Vec<String>,
+    /// Mailbox name -> SPECIAL-USE role (e.g. "sent", "trash", "all").
+    pub roles: HashMap<String, String>,
+    /// Names of non-selectable container mailboxes (e.g. "[Gmail]").
+    pub noselect: Vec<String>,
 }
 
 pub fn is_label_mailbox(mailbox: &str) -> bool {
@@ -100,6 +120,29 @@ impl MailboxListResponse {
             mailboxes,
             folders,
             labels,
+            roles: HashMap::new(),
+            noselect: Vec::new(),
+        }
+    }
+
+    pub fn from_entries(entries: Vec<MailboxEntry>) -> Self {
+        let mailboxes: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
+        let (folders, labels) = split_mailboxes(&mailboxes);
+        let roles = entries
+            .iter()
+            .filter_map(|e| e.role.clone().map(|role| (e.name.clone(), role)))
+            .collect();
+        let noselect = entries
+            .iter()
+            .filter(|e| !e.selectable)
+            .map(|e| e.name.clone())
+            .collect();
+        Self {
+            mailboxes,
+            folders,
+            labels,
+            roles,
+            noselect,
         }
     }
 }
@@ -213,8 +256,37 @@ pub struct AdvancedSearchResponse {
 mod tests {
     use super::{
         is_label_mailbox, label_key_from_mailbox, merge_mailbox_label_into_preview,
-        split_mailboxes, MailPreview, MailboxListResponse,
+        split_mailboxes, MailPreview, MailboxEntry, MailboxListResponse,
     };
+
+    #[test]
+    fn from_entries_collects_roles_and_noselect() {
+        let entries = vec![
+            MailboxEntry {
+                name: "INBOX".to_string(),
+                role: Some("inbox".to_string()),
+                selectable: true,
+            },
+            MailboxEntry {
+                name: "[Gmail]".to_string(),
+                role: None,
+                selectable: false,
+            },
+            MailboxEntry {
+                name: "[Gmail]/Çöp kutusu".to_string(),
+                role: Some("trash".to_string()),
+                selectable: true,
+            },
+        ];
+        let response = MailboxListResponse::from_entries(entries);
+        assert_eq!(response.mailboxes.len(), 3);
+        assert_eq!(response.roles.get("INBOX").map(String::as_str), Some("inbox"));
+        assert_eq!(
+            response.roles.get("[Gmail]/Çöp kutusu").map(String::as_str),
+            Some("trash")
+        );
+        assert_eq!(response.noselect, vec!["[Gmail]".to_string()]);
+    }
 
     #[test]
     fn label_classifier_matches_labels_namespace() {

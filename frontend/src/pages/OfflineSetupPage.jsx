@@ -105,17 +105,24 @@ function OfflineSetupPage() {
         setLabels([])
         return
       }
-      const response = await fetch(apiUrl('/api/auth/mailboxes-preview'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: formData.email || '',
-          imapServer: formData.imapServer || '',
-          imapPort: formData.imapPort || '',
-          password: formData.password || '',
-          sslMode: formData.sslMode || 'STARTTLS',
-        }),
-      })
+      const isGmail = formData.provider === 'gmail'
+      const response = isGmail
+        ? await fetch(apiUrl('/api/oauth/google/mailboxes-preview'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ flow_id: formData.flowId || '' }),
+          })
+        : await fetch(apiUrl('/api/auth/mailboxes-preview'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: formData.email || '',
+              imapServer: formData.imapServer || '',
+              imapPort: formData.imapPort || '',
+              password: formData.password || '',
+              sslMode: formData.sslMode || 'STARTTLS',
+            }),
+          })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
         throw new Error(data.message || 'Mailbox preview failed')
@@ -267,17 +274,30 @@ function OfflineSetupPage() {
 	    const theme = themeMode === 'manual' ? themeName : 'SYSTEM'
 
     try {
-      const response = await fetch(apiUrl('/api/account/finalize'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          account: formData,
-          language,
-          font,
-          theme,
-          offline,
-        }),
-      })
+      const isGmail = formData.provider === 'gmail'
+      const response = isGmail
+        ? await fetch(apiUrl('/api/oauth/google/finalize'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              flow_id: formData.flowId || '',
+              language,
+              font,
+              theme,
+              offline,
+            }),
+          })
+        : await fetch(apiUrl('/api/account/finalize'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              account: formData,
+              language,
+              font,
+              theme,
+              offline,
+            }),
+          })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) {
         throw new Error(result.message || 'Finalize failed')
@@ -285,12 +305,14 @@ function OfflineSetupPage() {
 
       hydrateAccountSession({
         account_id: result.account_id,
-        email_address: formData.email,
-        display_name: formData.displayName,
-        imap_host: formData.imapServer,
-        imap_port: formData.imapPort,
-        smtp_host: formData.smtpServer,
-        smtp_port: formData.smtpPort,
+        email_address: result.email_address || formData.email,
+        display_name: result.display_name || formData.displayName,
+        provider_type: result.provider_type,
+        imap_host: result.imap_host || formData.imapServer,
+        imap_port: result.imap_port || formData.imapPort,
+        smtp_host: result.smtp_host || formData.smtpServer,
+        smtp_port: result.smtp_port || formData.smtpPort,
+        ssl_mode: result.ssl_mode || formData.sslMode,
         language,
         font,
         theme,

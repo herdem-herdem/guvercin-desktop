@@ -1752,3 +1752,126 @@
     color: var(--c-primary);
     background: var(--overlay-hover-1);
 }
+
+/* ─── Accounts panel ────────────────────────────────────────────── */
+.sp-accounts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.sp-account-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  border: 1px solid var(--c-border-1);
+  border-radius: 12px;
+  background: var(--c-surface-2);
+  overflow: hidden;
+}
+
+.sp-account-row--current {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 1px var(--c-primary) inset;
+}
+
+.sp-account-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.sp-account-main:hover:not(:disabled) {
+  background: var(--overlay-hover-1);
+}
+
+.sp-account-main:disabled {
+  cursor: default;
+}
+
+.sp-account-name {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--c-text-1);
+}
+
+.sp-account-email {
+  font-size: 13px;
+  color: var(--c-text-2);
+}
+
+.sp-account-meta {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.sp-account-delete {
+  align-self: center;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.sp-accounts-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.sp-account-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.45);
+  animation: spFadeIn 0.15s ease;
+}
+
+.sp-account-modal {
+  /* Override .sp-confirm-box's row layout: stack body above the actions. */
+  flex-direction: column;
+  align-items: stretch;
+  width: min(440px, 100%);
+  max-width: 100%;
+  background: var(--c-bg-alt);
+  border-radius: 14px;
+  padding: 22px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.sp-account-modal .sp-confirm-box__actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.sp-account-modal .sp-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sp-account-modal .sp-form-field label {
+  font-size: 13px;
+  color: var(--c-text-2);
+}
+
+.sp-account-modal .sp-form-field input {
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--c-border-2);
+  background: var(--c-surface-2);
+  color: var(--c-text-1);
+  font-size: 14px;
+}

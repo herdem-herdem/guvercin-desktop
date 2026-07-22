@@ -6,10 +6,13 @@ pub mod error;
 mod i18n;
 mod imap_client;
 mod imap_session;
+mod imap_utf7;
 mod keystore;
 mod mail_models;
 mod mail_routes;
 mod models;
+mod oauth;
+mod oauth_routes;
 mod offline_routes;
 mod routes;
 mod security_routes;
@@ -79,6 +82,20 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
         )
         .route("/api/auth/probe", post(routes::probe_server))
         .route("/api/account/finalize", post(routes::finalize_account))
+        .route("/api/oauth/google/config", get(oauth_routes::google_config))
+        .route("/api/oauth/google/begin", post(oauth_routes::google_begin))
+        .route(
+            "/api/oauth/google/status/:flow_id",
+            get(oauth_routes::google_status),
+        )
+        .route(
+            "/api/oauth/google/mailboxes-preview",
+            post(oauth_routes::google_mailboxes_preview),
+        )
+        .route(
+            "/api/oauth/google/finalize",
+            post(oauth_routes::google_finalize),
+        )
         .route(
             "/api/account/:account_id/theme",
             post(routes::set_account_theme),
@@ -262,5 +279,3 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
 
     Ok(port)
 }
-
-

@@ -62,6 +62,35 @@ struct AccountImapSettings {
     imap_port: u16,
     password: String,
     ssl_mode: String,
+    provider_type: String,
+}
+
+impl AccountImapSettings {
+    fn is_gmail(&self) -> bool {
+        self.provider_type == crate::oauth::PROVIDER_GMAIL
+    }
+}
+
+/// Resolve the effective SMTP secret for a queued send: a fresh OAuth2 access
+/// token plus `true` (use XOAUTH2) for Gmail accounts, or the stored password
+/// plus `false` otherwise.
+async fn resolve_smtp_secret(
+    state: &Arc<MailAppState>,
+    account_id: i64,
+    provider_type: &str,
+    password: String,
+) -> Result<(String, bool), String> {
+    if provider_type == crate::oauth::PROVIDER_GMAIL {
+        let pool = state
+            ._db
+            .require_general_pool()
+            .await
+            .map_err(|e| format!("{e}"))?;
+        let token = crate::oauth::access_token_for_account(&pool, account_id).await?;
+        Ok((token, true))
+    } else {
+        Ok((password, false))
+    }
 }
 
 struct SyncPolicy {
@@ -2412,7 +2441,7 @@ pub async fn process_queue_once(
                 }
                 "send" => {
                     let account_row = sqlx::query(
-                        "SELECT email_address, auth_token, smtp_host, smtp_port, ssl_mode FROM accounts WHERE account_id = ?"
+                        "SELECT email_address, auth_token, smtp_host, smtp_port, ssl_mode, provider_type FROM accounts WHERE account_id = ?"
                     )
                     .bind(account_id)
                     .fetch_optional(&state._db.require_general_pool().await?)
@@ -2497,46 +2526,64 @@ pub async fn process_queue_once(
                             let attachments = parse_send_attachments(&parsed);
 
                             let headers = parse_payload_headers(&parsed);
-                            match crate::smtp_send::send_mail_with_headers(
-                                &smtp_host,
-                                smtp_port,
-                                &ssl_mode,
-                                &email,
-                                &password,
-                                from,
-                                to,
-                                cc,
-                                bcc,
-                                subject,
-                                format,
-                                html_body,
-                                plain_body,
-                                &attachments,
-                                &headers,
+                            let provider_type = row
+                                .try_get::<Option<String>, _>("provider_type")
+                                .ok()
+                                .flatten()
+                                .unwrap_or_default();
+                            match resolve_smtp_secret(
+                                state,
+                                account_id,
+                                &provider_type,
+                                password.clone(),
                             )
                             .await
                             {
-                                Ok(()) => {
-                                    if let Some((uid, mailbox)) =
-                                        parse_post_send_mark_answered(&parsed)
+                                Err(e) => Err(e),
+                                Ok((send_secret, use_xoauth2)) => {
+                                    match crate::smtp_send::send_mail_with_headers(
+                                        &smtp_host,
+                                        smtp_port,
+                                        &ssl_mode,
+                                        &email,
+                                        &send_secret,
+                                        from,
+                                        to,
+                                        cc,
+                                        bcc,
+                                        subject,
+                                        format,
+                                        html_body,
+                                        plain_body,
+                                        &attachments,
+                                        &headers,
+                                        use_xoauth2,
+                                    )
+                                    .await
                                     {
-                                        let _ = ensure_imap_connected(
-                                            &state._db,
-                                            &state.imap,
-                                            account_id,
-                                        )
-                                        .await;
-                                        let _ = imap_session::mark_answered(
-                                            &state.imap,
-                                            account_id,
-                                            &mailbox,
-                                            &uid,
-                                            true,
-                                        );
+                                        Ok(()) => {
+                                            if let Some((uid, mailbox)) =
+                                                parse_post_send_mark_answered(&parsed)
+                                            {
+                                                let _ = ensure_imap_connected(
+                                                    &state._db,
+                                                    &state.imap,
+                                                    account_id,
+                                                )
+                                                .await;
+                                                let _ = imap_session::mark_answered(
+                                                    &state.imap,
+                                                    account_id,
+                                                    &mailbox,
+                                                    &uid,
+                                                    true,
+                                                );
+                                            }
+                                            Ok(())
+                                        }
+                                        Err(err) => Err(err),
                                     }
-                                    Ok(())
                                 }
-                                Err(err) => Err(err),
                             }
                         }
                     } else {
@@ -2548,7 +2595,7 @@ pub async fn process_queue_once(
                         Ok(()) // nothing to forward
                     } else {
                         let account_row = sqlx::query(
-                            "SELECT email_address, auth_token, smtp_host, smtp_port, ssl_mode FROM accounts WHERE account_id = ?",
+                            "SELECT email_address, auth_token, smtp_host, smtp_port, ssl_mode, provider_type FROM accounts WHERE account_id = ?",
                         )
                         .bind(account_id)
                         .fetch_optional(&state._db.require_general_pool().await?)
@@ -2757,23 +2804,41 @@ pub async fn process_queue_once(
                                         // Ensure any user attachments are appended (already in attachments for both branches via extra_attachments).
                                         // (Keep as-is; the comment is here to clarify intent.)
 
-                                        let result = crate::smtp_send::send_mail(
-                                            &smtp_host,
-                                            smtp_port,
-                                            &ssl_mode,
-                                            &email,
-                                            &password,
-                                            &email,
-                                            to,
-                                            cc,
-                                            bcc,
-                                            &subject,
-                                            format,
-                                            &html_body,
-                                            &plain_body,
-                                            &attachments,
+                                        let provider_type = row
+                                            .try_get::<Option<String>, _>("provider_type")
+                                            .ok()
+                                            .flatten()
+                                            .unwrap_or_default();
+                                        let result = match resolve_smtp_secret(
+                                            state,
+                                            account_id,
+                                            &provider_type,
+                                            password.clone(),
                                         )
-                                        .await;
+                                        .await
+                                        {
+                                            Err(e) => Err(e),
+                                            Ok((send_secret, use_xoauth2)) => {
+                                                crate::smtp_send::send_mail(
+                                                    &smtp_host,
+                                                    smtp_port,
+                                                    &ssl_mode,
+                                                    &email,
+                                                    &send_secret,
+                                                    &email,
+                                                    to,
+                                                    cc,
+                                                    bcc,
+                                                    &subject,
+                                                    format,
+                                                    &html_body,
+                                                    &plain_body,
+                                                    &attachments,
+                                                    use_xoauth2,
+                                                )
+                                                .await
+                                            }
+                                        };
 
                                         if result.is_ok() {
                                             let _ = ensure_imap_connected(
@@ -2806,7 +2871,7 @@ pub async fn process_queue_once(
                     Err("Forward bundle is no longer supported".to_string())
                     /*
                     let account_row = sqlx::query(
-                        "SELECT email_address, auth_token, smtp_host, smtp_port, ssl_mode FROM accounts WHERE account_id = ?",
+                        "SELECT email_address, auth_token, smtp_host, smtp_port, ssl_mode, provider_type FROM accounts WHERE account_id = ?",
                     )
                     .bind(account_id)
                     .fetch_optional(&state._db.require_general_pool().await?)
@@ -3006,23 +3071,41 @@ pub async fn process_queue_once(
                                         let mut attachments = eml_attachments;
                                         attachments.extend(extra_attachments);
 
-                                        let result = crate::smtp_send::send_mail(
-                                            &smtp_host,
-                                            smtp_port,
-                                            &ssl_mode,
-                                            &email,
-                                            &password,
-                                            &email,
-                                            to,
-                                            cc,
-                                            bcc,
-                                            &subject,
-                                            format,
-                                            &html_body,
-                                            &plain_body,
-                                            &attachments,
+                                        let provider_type = row
+                                            .try_get::<Option<String>, _>("provider_type")
+                                            .ok()
+                                            .flatten()
+                                            .unwrap_or_default();
+                                        let result = match resolve_smtp_secret(
+                                            state,
+                                            account_id,
+                                            &provider_type,
+                                            password.clone(),
                                         )
-                                        .await;
+                                        .await
+                                        {
+                                            Err(e) => Err(e),
+                                            Ok((send_secret, use_xoauth2)) => {
+                                                crate::smtp_send::send_mail(
+                                                    &smtp_host,
+                                                    smtp_port,
+                                                    &ssl_mode,
+                                                    &email,
+                                                    &send_secret,
+                                                    &email,
+                                                    to,
+                                                    cc,
+                                                    bcc,
+                                                    &subject,
+                                                    format,
+                                                    &html_body,
+                                                    &plain_body,
+                                                    &attachments,
+                                                    use_xoauth2,
+                                                )
+                                                .await
+                                            }
+                                        };
 
                                         if result.is_ok() {
                                             let _ = ensure_imap_connected(&state._db, &state.imap, account_id).await;
@@ -3144,7 +3227,7 @@ async fn load_account_imap_settings(
     account_id: i64,
 ) -> Result<Option<AccountImapSettings>, AppError> {
     let account_row = sqlx::query(
-        "SELECT email_address, imap_host, imap_port, auth_token, ssl_mode FROM accounts WHERE account_id = ?",
+        "SELECT email_address, imap_host, imap_port, auth_token, ssl_mode, provider_type FROM accounts WHERE account_id = ?",
     )
     .bind(account_id)
     .fetch_optional(&app_state.require_general_pool().await?)
@@ -3180,6 +3263,11 @@ async fn load_account_imap_settings(
             .ok()
             .flatten()
             .unwrap_or_else(|| "STARTTLS".to_string()),
+        provider_type: account_row
+            .try_get::<Option<String>, _>("provider_type")
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
     }))
 }
 
@@ -3196,21 +3284,49 @@ async fn ensure_imap_connected(
         return Ok(());
     };
 
-    if settings.email.is_empty() || settings.imap_host.is_empty() || settings.password.is_empty() {
+    if settings.email.is_empty() || settings.imap_host.is_empty() {
+        return Ok(());
+    }
+
+    let is_gmail = settings.is_gmail();
+
+    // Resolve the effective secret: a fresh OAuth2 access token for Gmail, the
+    // stored password otherwise.
+    let secret: String = if is_gmail {
+        crate::oauth::access_token_for_account(&app_state.require_general_pool().await?, account_id)
+            .await
+            .map_err(AppError::BadRequest)?
+    } else {
+        settings.password.clone()
+    };
+
+    if secret.is_empty() {
         return Ok(());
     }
 
     let imap_state = imap_state.clone();
     let result = tokio::task::spawn_blocking(move || {
-        imap_session::connect_and_login(
-            &imap_state,
-            account_id,
-            &settings.email,
-            &settings.password,
-            &settings.imap_host,
-            settings.imap_port,
-            &settings.ssl_mode,
-        )
+        if is_gmail {
+            imap_session::connect_and_login_xoauth2(
+                &imap_state,
+                account_id,
+                &settings.email,
+                &secret,
+                &settings.imap_host,
+                settings.imap_port,
+                &settings.ssl_mode,
+            )
+        } else {
+            imap_session::connect_and_login(
+                &imap_state,
+                account_id,
+                &settings.email,
+                &secret,
+                &settings.imap_host,
+                settings.imap_port,
+                &settings.ssl_mode,
+            )
+        }
     })
     .await
     .unwrap_or_else(|e| Err(format!("Task panic: {e}")));

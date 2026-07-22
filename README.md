@@ -50,3 +50,36 @@ Notes:
 
 - The frontend code is in the `frontend` folder (React/Vite).
 - It communicates with the backend over HTTP; having the Rust backend running is sufficient.
+
+### Google / Gmail sign-in (OAuth2)
+
+Gmail accounts are supported through the standard IMAP/SMTP pipeline using OAuth2
+(`XOAUTH2`). "Continue with Google" runs a PKCE loopback flow: the system browser
+opens Google's consent screen and the redirect is caught on a local
+`http://127.0.0.1:<random-port>` address — no tokens ever pass through the UI.
+
+The app **ships with a default OAuth client**, so Google sign-in works out of
+the box — end-users don't need to configure anything. For an installed / desktop
+app this is expected: Google treats such clients as non-confidential, since the
+client secret necessarily ships inside the distributed binary.
+
+**Using your own client (optional, for forks).** The default is defined in
+`rust-backend/src/oauth.rs`; override it without editing that file by setting
+environment variables (loaded from `.env` in development, or baked in at build
+time via `option_env!`):
+
+1. In the [Google Cloud Console](https://console.cloud.google.com/) create a
+   project, enable the **Gmail API**, and create an OAuth client of type
+   **Desktop app**.
+2. Copy `.env.example` to `.env` (git-ignored) and set:
+
+   ```bash
+   GOOGLE_CLIENT_ID=your_client_id
+   GOOGLE_CLIENT_SECRET=your_client_secret
+   ```
+
+Resolution order per value: environment variable → `option_env!` build-time
+value → shipped default.
+
+No redirect URI needs to be registered — the loopback address is dynamic, which
+the "Desktop app" client type allows.

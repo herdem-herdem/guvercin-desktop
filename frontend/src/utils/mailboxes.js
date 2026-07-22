@@ -10,10 +10,24 @@ export function isLabelMailboxPath(value) {
         || /^\[Labels\]\//i.test(mailbox)
 }
 
+function sanitizeRoles(value) {
+    if (!value || typeof value !== 'object') return {}
+    const out = {}
+    for (const [name, role] of Object.entries(value)) {
+        if (typeof name === 'string' && typeof role === 'string' && role) {
+            out[name] = role.toLowerCase()
+        }
+    }
+    return out
+}
+
 export function normalizeMailboxResponse(payload) {
     const rawFolders = sanitizeMailboxList(payload?.folders)
     const rawLabels = sanitizeMailboxList(payload?.labels)
     const allMailboxes = sanitizeMailboxList(payload?.mailboxes)
+    // SPECIAL-USE metadata (present on the live IMAP response, absent offline).
+    const roles = sanitizeRoles(payload?.roles)
+    const noselect = sanitizeMailboxList(payload?.noselect)
 
     const normalizedMailboxes = allMailboxes.length > 0
         ? allMailboxes
@@ -24,6 +38,8 @@ export function normalizeMailboxResponse(payload) {
             allMailboxes: normalizedMailboxes,
             folders: rawFolders,
             labels: rawLabels,
+            roles,
+            noselect,
         }
     }
 
@@ -42,6 +58,8 @@ export function normalizeMailboxResponse(payload) {
         allMailboxes: normalizedMailboxes,
         folders,
         labels,
+        roles,
+        noselect,
     }
 }
 

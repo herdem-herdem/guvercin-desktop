@@ -346,16 +346,16 @@ pub async fn connect_imap_stored(
     State(state): State<Arc<MailAppState>>,
     Path(account_id): Path<i64>,
 ) -> impl IntoResponse {
+    let pool = match state._db.ensure_ready(false).await {
+        Ok(inner) => inner.general_pool.clone(),
+        Err(e) => return e.into_response(),
+    };
+
     let account = match sqlx::query(
-        "SELECT email_address, imap_host, imap_port, auth_token, ssl_mode FROM accounts WHERE account_id = ?",
+        "SELECT email_address, imap_host, imap_port, auth_token, ssl_mode, provider_type FROM accounts WHERE account_id = ?",
     )
     .bind(account_id)
-    .fetch_one(
-        &match state._db.ensure_ready(false).await {
-            Ok(inner) => inner.general_pool.clone(),
-            Err(e) => return e.into_response(),
-        },
-    )
+    .fetch_one(&pool)
     .await {
         Ok(a) => a,
         Err(_) => return (StatusCode::NOT_FOUND, Json(json!({"error": "Account not found"}))).into_response(),
@@ -381,11 +381,29 @@ pub async fn connect_imap_stored(
         .try_get::<Option<String>, _>("ssl_mode")
         .unwrap_or_default()
         .unwrap_or_else(|| "STARTTLS".to_string());
+    let provider: String = account
+        .try_get::<Option<String>, _>("provider_type")
+        .unwrap_or_default()
+        .unwrap_or_default();
 
-    if password.is_empty() {
+    let is_gmail = provider == crate::oauth::PROVIDER_GMAIL;
+
+    // For Gmail we authenticate with a fresh OAuth2 access token; for IMAP we
+    // use the stored password. Resolve the effective secret before entering the
+    // blocking connect closure.
+    let secret: String = if is_gmail {
+        match crate::oauth::access_token_for_account(&pool, account_id).await {
+            Ok(tok) => tok,
+            Err(e) => return (StatusCode::BAD_GATEWAY, Json(json!({"error": e}))).into_response(),
+        }
+    } else {
+        password
+    };
+
+    if secret.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "No password stored"})),
+            Json(json!({"error": "No credentials stored"})),
         )
             .into_response();
     }
@@ -393,15 +411,27 @@ pub async fn connect_imap_stored(
     let result = tokio::task::spawn_blocking({
         let imap_state = state.imap.clone();
         move || {
-            imap_session::connect_and_login(
-                &imap_state,
-                account_id,
-                &email,
-                &password,
-                &host,
-                port as u16,
-                &ssl,
-            )
+            if is_gmail {
+                imap_session::connect_and_login_xoauth2(
+                    &imap_state,
+                    account_id,
+                    &email,
+                    &secret,
+                    &host,
+                    port as u16,
+                    &ssl,
+                )
+            } else {
+                imap_session::connect_and_login(
+                    &imap_state,
+                    account_id,
+                    &email,
+                    &secret,
+                    &host,
+                    port as u16,
+                    &ssl,
+                )
+            }
         }
     })
     .await
@@ -417,14 +447,14 @@ pub async fn get_mailboxes(
     State(state): State<Arc<MailAppState>>,
     Path(account_id): Path<i64>,
 ) -> impl IntoResponse {
-    let mailboxes = tokio::task::spawn_blocking({
+    let entries = tokio::task::spawn_blocking({
         let imap_state = state.imap.clone();
-        move || imap_session::list_mailboxes(&imap_state, account_id)
+        move || imap_session::list_mailboxes_detailed(&imap_state, account_id)
     })
     .await
     .unwrap_or_default();
 
-    Json(MailboxListResponse::from_mailboxes(mailboxes))
+    Json(MailboxListResponse::from_entries(entries))
 }
 
 #[derive(Deserialize)]

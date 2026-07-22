@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use lettre::{
     message::{header, header::ContentType, Attachment, MultiPart, SinglePart},
-    transport::smtp::authentication::Credentials,
+    transport::smtp::authentication::{Credentials, Mechanism},
     transport::smtp::client::{Tls, TlsParameters},
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
 };
@@ -262,6 +262,7 @@ pub fn build_rfc822_message(
     Ok(message.formatted())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn send_mail(
     smtp_host: &str,
     smtp_port: u16,
@@ -277,6 +278,7 @@ pub async fn send_mail(
     html_body: &str,
     plain_body: &str,
     attachments: &[OutgoingAttachment],
+    xoauth2: bool,
 ) -> Result<(), String> {
     send_mail_with_headers(
         smtp_host,
@@ -294,10 +296,14 @@ pub async fn send_mail(
         plain_body,
         attachments,
         &[],
+        xoauth2,
     )
     .await
 }
 
+/// When `xoauth2` is true, `password` is treated as an OAuth2 access token and
+/// the SMTP `XOAUTH2` mechanism is used (Gmail); otherwise plain credentials.
+#[allow(clippy::too_many_arguments)]
 pub async fn send_mail_with_headers(
     smtp_host: &str,
     smtp_port: u16,
@@ -314,6 +320,7 @@ pub async fn send_mail_with_headers(
     plain_body: &str,
     attachments: &[OutgoingAttachment],
     raw_headers: &[(String, String)],
+    xoauth2: bool,
 ) -> Result<(), String> {
     info!(
         "Preparing to send email to {} recipients via {}:{} ({})",
@@ -354,45 +361,66 @@ pub async fn send_mail_with_headers(
     let credentials = Credentials::new(email.to_string(), password.to_string());
     let is_loopback = is_loopback_smtp_host(smtp_host);
 
+    // For OAuth2 (Gmail) force the XOAUTH2 SASL mechanism; the "password" is the
+    // access token. Applied via a small helper so every branch stays consistent.
+    let auth_mech: Option<Vec<Mechanism>> = if xoauth2 {
+        Some(vec![Mechanism::Xoauth2])
+    } else {
+        None
+    };
+    let apply_auth = |builder: lettre::transport::smtp::AsyncSmtpTransportBuilder| {
+        let builder = builder.credentials(credentials.clone());
+        match &auth_mech {
+            Some(mechs) => builder.authentication(mechs.clone()),
+            None => builder,
+        }
+    };
+
     let mailer: AsyncSmtpTransport<Tokio1Executor> = match upper_ssl_mode.as_str() {
         "SSL" => {
             if is_loopback {
                 let tls = build_local_tls_parameters()?;
-                AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host)
-                    .port(smtp_port)
-                    .tls(Tls::Wrapper(tls))
-                    .credentials(credentials)
-                    .build()
+                apply_auth(
+                    AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host)
+                        .port(smtp_port)
+                        .tls(Tls::Wrapper(tls)),
+                )
+                .build()
             } else {
-                AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host)
-                    .map_err(|e| format!("Failed to create SMTPS relay for {}: {}", smtp_host, e))?
-                    .port(smtp_port)
-                    .credentials(credentials)
-                    .build()
+                apply_auth(
+                    AsyncSmtpTransport::<Tokio1Executor>::relay(smtp_host)
+                        .map_err(|e| {
+                            format!("Failed to create SMTPS relay for {}: {}", smtp_host, e)
+                        })?
+                        .port(smtp_port),
+                )
+                .build()
             }
         }
         "STARTTLS" => {
             if is_loopback {
                 let tls = build_local_tls_parameters()?;
-                AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host)
-                    .port(smtp_port)
-                    .tls(Tls::Required(tls))
-                    .credentials(credentials)
-                    .build()
+                apply_auth(
+                    AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host)
+                        .port(smtp_port)
+                        .tls(Tls::Required(tls)),
+                )
+                .build()
             } else {
-                AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(smtp_host)
-                    .map_err(|e| {
-                        format!("Failed to create STARTTLS relay for {}: {}", smtp_host, e)
-                    })?
-                    .port(smtp_port)
-                    .credentials(credentials)
-                    .build()
+                apply_auth(
+                    AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(smtp_host)
+                        .map_err(|e| {
+                            format!("Failed to create STARTTLS relay for {}: {}", smtp_host, e)
+                        })?
+                        .port(smtp_port),
+                )
+                .build()
             }
         }
-        _ => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host)
-            .port(smtp_port)
-            .credentials(credentials)
-            .build(),
+        _ => apply_auth(
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(smtp_host).port(smtp_port),
+        )
+        .build(),
     };
 
     match mailer.send(email_message).await {

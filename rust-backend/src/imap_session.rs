@@ -11,8 +11,8 @@ use native_tls::TlsConnector;
 use tracing::{error, info, warn};
 
 use crate::mail_models::{
-    merge_mailbox_label_into_preview, AdvancedSearchRequest, AttachmentInfo, MailContent,
-    MailPreview, MailSearchPreview, ReadStatus, SearchScope,
+    merge_mailbox_label_into_preview, AdvancedSearchRequest, AttachmentInfo, MailboxEntry,
+    MailContent, MailPreview, MailSearchPreview, ReadStatus, SearchScope,
 };
 use mailparse::{
     addrparse_header, parse_headers, parse_mail, DispositionType, MailAddr, MailHeaderMap,
@@ -65,12 +65,48 @@ impl ImapSession {
     }
 
     fn list_mailboxes(&mut self) -> Vec<String> {
+        self.list_mailboxes_detailed()
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect()
+    }
+
+    /// List mailboxes together with their SPECIAL-USE role and selectability,
+    /// so the UI can present Gmail's special folders like a native client does.
+    fn list_mailboxes_detailed(&mut self) -> Vec<MailboxEntry> {
         let result = match self {
             ImapSession::Plain(s) => s.list(Some(""), Some("*")),
             ImapSession::Tls(s) => s.list(Some(""), Some("*")),
         };
         match result {
-            Ok(names) => names.iter().map(|n| n.name().to_string()).collect(),
+            Ok(names) => names
+                .iter()
+                .map(|n| {
+                    let name = crate::imap_utf7::decode(n.name());
+                    let mut role = None;
+                    let mut selectable = true;
+                    for attr in n.attributes() {
+                        match attr {
+                            imap::types::NameAttribute::NoSelect => selectable = false,
+                            imap::types::NameAttribute::Custom(value) => {
+                                if role.is_none() {
+                                    role = special_use_role(value);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    // INBOX has no SPECIAL-USE flag but is always the inbox.
+                    if role.is_none() && name.eq_ignore_ascii_case("INBOX") {
+                        role = Some("inbox".to_string());
+                    }
+                    MailboxEntry {
+                        name,
+                        role,
+                        selectable,
+                    }
+                })
+                .collect(),
             Err(e) => {
                 warn!("list_mailboxes error: {e}");
                 vec![]
@@ -79,9 +115,10 @@ impl ImapSession {
     }
 
     fn select_mailbox(&mut self, name: &str) -> Result<u32, String> {
+        let name = crate::imap_utf7::encode(name);
         let mb = match self {
-            ImapSession::Plain(s) => s.select(name),
-            ImapSession::Tls(s) => s.select(name),
+            ImapSession::Plain(s) => s.select(&name),
+            ImapSession::Tls(s) => s.select(&name),
         };
         match mb {
             Ok(mb) => Ok(mb.exists),
@@ -259,9 +296,10 @@ impl ImapSession {
     }
 
     fn uid_move_to(&mut self, uid: &str, folder: &str) -> Result<(), String> {
+        let folder = crate::imap_utf7::encode(folder);
         let copied = match self {
-            ImapSession::Plain(s) => s.uid_copy(uid, folder),
-            ImapSession::Tls(s) => s.uid_copy(uid, folder),
+            ImapSession::Plain(s) => s.uid_copy(uid, &folder),
+            ImapSession::Tls(s) => s.uid_copy(uid, &folder),
         };
         copied.map_err(|e| format!("{e}"))?;
         self.uid_store_flag(uid, "\\Deleted", true)?;
@@ -498,10 +536,103 @@ pub fn connect_and_login(
     Ok(())
 }
 
+/// Open an IMAP session authenticating with SASL `XOAUTH2` (Gmail / OAuth2).
+/// `access_token` must be a currently-valid OAuth2 access token.
+pub fn connect_and_login_xoauth2(
+    state: &Arc<ImapState>,
+    account_id: i64,
+    email: &str,
+    access_token: &str,
+    imap_host: &str,
+    imap_port: u16,
+    ssl_mode: &str,
+) -> Result<(), String> {
+    let mut builder = TlsConnector::builder();
+    builder.danger_accept_invalid_certs(true);
+    builder.danger_accept_invalid_hostnames(true);
+    let tls = builder.build().map_err(|e| format!("{e}"))?;
+
+    let auth = crate::imap_client::XOAuth2 {
+        user: email.to_string(),
+        access_token: access_token.to_string(),
+    };
+
+    let session = match ssl_mode.to_uppercase().as_str() {
+        "STARTTLS" => {
+            let client = imap::connect_starttls((imap_host, imap_port), imap_host, &tls)
+                .map_err(|e| format!("{e}"))?;
+            let s = client
+                .authenticate("XOAUTH2", &auth)
+                .map_err(|(e, _)| format!("{e}"))?;
+            ImapSession::Tls(s)
+        }
+        _ => {
+            let client = imap::connect((imap_host, imap_port), imap_host, &tls)
+                .map_err(|e| format!("{e}"))?;
+            let s = client
+                .authenticate("XOAUTH2", &auth)
+                .map_err(|(e, _)| format!("{e}"))?;
+            ImapSession::Tls(s)
+        }
+    };
+
+    state.sessions.lock().unwrap().insert(account_id, session);
+    info!("IMAP XOAUTH2 session opened for account {account_id}");
+    Ok(())
+}
+
+#[cfg(test)]
+mod special_use_tests {
+    use super::special_use_role;
+
+    #[test]
+    fn maps_known_attributes() {
+        assert_eq!(special_use_role("\\Sent").as_deref(), Some("sent"));
+        assert_eq!(special_use_role("\\Trash").as_deref(), Some("trash"));
+        assert_eq!(special_use_role("\\All").as_deref(), Some("all"));
+        assert_eq!(special_use_role("\\Important").as_deref(), Some("important"));
+        assert_eq!(special_use_role("\\Junk").as_deref(), Some("junk"));
+        assert_eq!(special_use_role("\\Flagged").as_deref(), Some("flagged"));
+    }
+
+    #[test]
+    fn ignores_non_special_use_attributes() {
+        assert_eq!(special_use_role("\\HasNoChildren"), None);
+        assert_eq!(special_use_role("\\Marked"), None);
+    }
+}
+
+/// Map an IMAP SPECIAL-USE attribute (e.g. `\Sent`) to a short role name.
+fn special_use_role(attr: &str) -> Option<String> {
+    let role = match attr.trim_start_matches('\\').to_ascii_lowercase().as_str() {
+        "sent" => "sent",
+        "drafts" => "drafts",
+        "trash" => "trash",
+        "junk" => "junk",
+        "all" => "all",
+        "important" => "important",
+        "flagged" => "flagged",
+        "archive" => "archive",
+        _ => return None,
+    };
+    Some(role.to_string())
+}
+
 pub fn list_mailboxes(state: &Arc<ImapState>, account_id: i64) -> Vec<String> {
     let mut sessions = state.sessions.lock().unwrap();
     match sessions.get_mut(&account_id) {
         Some(s) => s.list_mailboxes(),
+        None => {
+            warn!("No IMAP session for account {account_id}");
+            vec![]
+        }
+    }
+}
+
+pub fn list_mailboxes_detailed(state: &Arc<ImapState>, account_id: i64) -> Vec<MailboxEntry> {
+    let mut sessions = state.sessions.lock().unwrap();
+    match sessions.get_mut(&account_id) {
+        Some(s) => s.list_mailboxes_detailed(),
         None => {
             warn!("No IMAP session for account {account_id}");
             vec![]
@@ -979,9 +1110,10 @@ pub fn set_label(
         }
 
         if let Some(folder) = target_folder {
+            let folder = crate::imap_utf7::encode(&folder);
             let _ = match session {
-                ImapSession::Plain(s) => s.uid_copy(uid, folder),
-                ImapSession::Tls(s) => s.uid_copy(uid, folder),
+                ImapSession::Plain(s) => s.uid_copy(uid, &folder),
+                ImapSession::Tls(s) => s.uid_copy(uid, &folder),
             };
         }
     } else {
@@ -1014,9 +1146,10 @@ pub fn create_mailbox(
     let session = sessions
         .get_mut(&account_id)
         .ok_or_else(|| format!("No IMAP session for account {account_id}"))?;
+    let mailbox = crate::imap_utf7::encode(mailbox);
     let result = match session {
-        ImapSession::Plain(s) => s.create(mailbox),
-        ImapSession::Tls(s) => s.create(mailbox),
+        ImapSession::Plain(s) => s.create(&mailbox),
+        ImapSession::Tls(s) => s.create(&mailbox),
     };
     result.map(|_| ()).map_err(|e| format!("{e}"))
 }
@@ -1048,9 +1181,10 @@ pub fn append_draft(
         .ok_or_else(|| format!("No IMAP session for account {account_id}"))?;
 
     let flags = [imap::types::Flag::Draft, imap::types::Flag::Seen];
+    let wire_mailbox = crate::imap_utf7::encode(mailbox);
     let append_result = match session {
-        ImapSession::Plain(s) => s.append_with_flags(mailbox, raw, &flags),
-        ImapSession::Tls(s) => s.append_with_flags(mailbox, raw, &flags),
+        ImapSession::Plain(s) => s.append_with_flags(&wire_mailbox, raw, &flags),
+        ImapSession::Tls(s) => s.append_with_flags(&wire_mailbox, raw, &flags),
     };
     append_result.map_err(|e| format!("{e}"))?;
 

@@ -8,8 +8,10 @@ import React, {
     createContext,
     useContext,
 } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext.jsx'
 import { apiUrl } from '../utils/api'
+import { hydrateAccountSession, clearAccountSession } from '../utils/accountStorage.js'
 import {
     normalizeMailboxResponse,
     dedupeStringsCaseInsensitive,
@@ -134,6 +136,13 @@ function offlineStateEquals(a, b) {
 /* ─── Static category tree ─────────────────────────────────────── */
 const CATEGORIES = [
     {
+        id: 'accounts',
+        label: 'Accounts',
+        children: [
+            { id: 'accounts_manage', label: 'Manage Accounts', parentId: 'accounts' },
+        ],
+    },
+    {
         id: 'general',
         label: 'General',
         children: [
@@ -182,6 +191,7 @@ const CATEGORIES = [
 
 /** Searchable content per panel (titles, descriptions, labels, keywords). */
 const PANEL_SEARCH_INDEX = {
+    accounts_manage: 'account accounts manage switch add remove delete log out logout sign out session gmail imap google',
     general_behavior: 'behavior startup launch login tray close quit minimize window behavior app start',
     language: 'language lang locale translation translate dil türkçe english deutsch french español',
     sync: 'sync synchronize interval auto automatic refresh mail periodic background',
@@ -4032,6 +4042,184 @@ function ThreadViewSettings({ accountId, searchQuery = '' }) {
     )
 }
 
+function AccountsSettings({ accountId, searchQuery = '' }) {
+    const navigate = useNavigate()
+    const [accounts, setAccounts] = useState([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
+    const [deleteCandidate, setDeleteCandidate] = useState(null)
+    const [deletePassword, setDeletePassword] = useState('')
+    const [deleteError, setDeleteError] = useState('')
+    const [isDeleting, setIsDeleting] = useState(false)
+
+    const load = useCallback(async () => {
+        setLoading(true)
+        setError('')
+        try {
+            const res = await fetch(apiUrl('/api/auth/accounts'))
+            if (!res.ok) throw new Error('Failed to fetch accounts')
+            const data = await res.json()
+            setAccounts(Array.isArray(data.accounts) ? data.accounts : [])
+        } catch {
+            setError('Unable to load accounts. Please try again.')
+        } finally {
+            setLoading(false)
+        }
+    }, [])
+
+    useEffect(() => { load() }, [load])
+
+    const currentId = accountId != null ? Number(accountId) : null
+    const isCurrent = (a) => currentId != null && Number(a.account_id) === currentId
+    const isGmail = (a) => String(a.provider_type || '').toLowerCase() === 'gmail'
+
+    const handleSwitch = (a) => {
+        if (isCurrent(a)) return
+        hydrateAccountSession(a)
+        navigate('/dashboard', { replace: true })
+    }
+    const handleAdd = () => navigate('/login')
+    const handleLogout = () => {
+        clearAccountSession()
+        navigate('/account-select', { replace: true })
+    }
+
+    const openDelete = (a) => {
+        setDeleteCandidate(a)
+        setDeletePassword('')
+        setDeleteError('')
+    }
+    const closeDelete = () => {
+        setDeleteCandidate(null)
+        setDeletePassword('')
+        setDeleteError('')
+    }
+
+    const confirmDelete = async (e) => {
+        e.preventDefault()
+        if (!deleteCandidate) return
+        setIsDeleting(true)
+        setDeleteError('')
+        try {
+            const res = await fetch(apiUrl(`/api/account/${deleteCandidate.account_id}`), {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: deletePassword }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.message || data.error || 'Failed to delete account')
+            const wasCurrent = isCurrent(deleteCandidate)
+            closeDelete()
+            if (wasCurrent) {
+                clearAccountSession()
+                navigate('/account-select', { replace: true })
+                return
+            }
+            await load()
+        } catch (err) {
+            let msg = err?.message || 'An error occurred.'
+            if (msg.includes('Incorrect password')) msg = 'Incorrect password'
+            setDeleteError(msg)
+        } finally {
+            setIsDeleting(false)
+        }
+    }
+
+    return (
+        <div className="sp-section">
+            <h2 className="sp-section__title"><HighlightMatch text="Accounts" query={searchQuery} /></h2>
+            <p className="sp-section__desc">
+                Manage the mail accounts registered in Güvercin — switch between them, sign out, add another, or remove an account and its local data.
+            </p>
+
+            {loading ? (
+                <div className="sp-loading-row"><div className="sp-spinner" /></div>
+            ) : error ? (
+                <div className="sp-form-message sp-form-message--error">
+                    {error}{' '}
+                    <button type="button" className="sp-ghost-btn" onClick={load}>Try again</button>
+                </div>
+            ) : accounts.length === 0 ? (
+                <p className="sp-section__desc">No accounts found.</p>
+            ) : (
+                <div className="sp-accounts-list">
+                    {accounts.map((a) => (
+                        <div key={a.account_id} className={`sp-account-row${isCurrent(a) ? ' sp-account-row--current' : ''}`}>
+                            <button
+                                type="button"
+                                className="sp-account-main"
+                                onClick={() => handleSwitch(a)}
+                                disabled={isCurrent(a)}
+                                title={isCurrent(a) ? 'Current account' : 'Switch to this account'}
+                            >
+                                <span className="sp-account-name">{a.display_name || a.email_address}</span>
+                                <span className="sp-account-email">{a.email_address}</span>
+                                <span className="sp-account-meta">
+                                    <span className="sp-badge">{isGmail(a) ? 'Gmail' : 'IMAP'}</span>
+                                    {isCurrent(a) && <span className="sp-badge sp-badge--recommended">Current</span>}
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                className="sp-ghost-btn sp-account-delete"
+                                onClick={() => openDelete(a)}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <div className="sp-accounts-actions">
+                <button type="button" className="sp-save-btn" onClick={handleAdd}>Add account</button>
+                <button type="button" className="sp-ghost-btn" onClick={handleLogout}>Log out</button>
+            </div>
+
+            {deleteCandidate && (
+                <div className="sp-account-modal-overlay" onClick={closeDelete}>
+                    <form
+                        className="sp-confirm-box sp-confirm-box--warn sp-account-modal"
+                        onClick={(e) => e.stopPropagation()}
+                        onSubmit={confirmDelete}
+                    >
+                        <div className="sp-confirm-box__body">
+                            <h3 className="sp-confirm-box__title">Delete account</h3>
+                            <p className="sp-confirm-box__desc">
+                                This permanently erases all local data for <strong>{deleteCandidate.email_address}</strong> from this computer. This action cannot be undone.
+                            </p>
+                            {!isGmail(deleteCandidate) && (
+                                <div className="sp-form-field" style={{ marginTop: 8 }}>
+                                    <label htmlFor="sp-del-pwd">Enter the account password to confirm:</label>
+                                    <input
+                                        id="sp-del-pwd"
+                                        type="password"
+                                        value={deletePassword}
+                                        onChange={(e) => setDeletePassword(e.target.value)}
+                                        autoFocus
+                                        required
+                                    />
+                                </div>
+                            )}
+                            {deleteError && (
+                                <div className="sp-form-message sp-form-message--error">{deleteError}</div>
+                            )}
+                        </div>
+                        <div className="sp-confirm-box__actions">
+                            <button type="button" className="sp-ghost-btn" onClick={closeDelete} disabled={isDeleting}>
+                                Cancel
+                            </button>
+                            <button type="submit" className="sp-confirm-btn sp-confirm-btn--danger" disabled={isDeleting}>
+                                {isDeleting ? 'Deleting…' : 'Delete account'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+        </div>
+    )
+}
+
 function renderContent(selection, accountId, onClose, onRefreshAccount, searchQuery = '', appearance) {
     if (!selection) return null
 
@@ -4128,6 +4316,7 @@ function renderSinglePanel(id, accountId, onClose, onRefreshAccount, searchQuery
         case 'links': return <LinksSettings key="links" searchQuery={q} />
         case 'blocked': return <BlockedSendersSettings accountId={accountId} key={`blocked-${accountId}`} searchQuery={q} />
         case 'encryption': return <EncryptionSettings searchQuery={q} />
+        case 'accounts_manage': return <AccountsSettings accountId={accountId} onClose={onClose} searchQuery={q} />
         default: return null
     }
 }
@@ -4154,7 +4343,7 @@ function SettingsPage(props) {
             })
             .filter(Boolean)
     }, [searchQuery])
-    const [expanded, setExpanded] = useState({ general: false, appearance: false, email: false, security: false })
+    const [expanded, setExpanded] = useState({ accounts: false, general: false, appearance: false, email: false, security: false })
     const [selected, setSelected] = useState('appearance')
     const searchRef = useRef(null)
 

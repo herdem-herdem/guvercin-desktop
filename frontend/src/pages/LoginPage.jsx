@@ -412,6 +412,7 @@ function LoginPage() {
     const [autoCandidates, setAutoCandidates] = useState([])
     const [activeAutoIndex, setActiveAutoIndex] = useState(0)
     const [passwordVisible, setPasswordVisible] = useState(false)
+    const [googleBusy, setGoogleBusy] = useState(false)
 
     const [formData, setFormData] = useState(() => {
         const fromState = location?.state?.formData
@@ -485,11 +486,84 @@ function LoginPage() {
         navigate('/dashboard')
     }
 
-    const handleGoogleStub = () => {
-        setResponseMessage({
-            type: 'error',
-            text: t('Google sign-in is not available yet.'),
-        })
+    const handleGoogleSignIn = async () => {
+        if (googleBusy) return
+        setResponseMessage(null)
+        setGoogleBusy(true)
+
+        try {
+            const beginResp = await fetch(apiUrl('/api/oauth/google/begin'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
+            })
+            const beginData = await beginResp.json().catch(() => ({}))
+
+            if (!beginResp.ok) {
+                setResponseMessage({
+                    type: 'error',
+                    text:
+                        beginData.message ||
+                        t('Google sign-in is not available. Please try again.'),
+                })
+                setGoogleBusy(false)
+                return
+            }
+
+            const flowId = beginData.flow_id
+            setResponseMessage({
+                type: 'info',
+                text: t('Complete sign-in in your browser, then return here…'),
+            })
+
+            // Poll the backend until the loopback exchange completes. The
+            // backend enforces its own timeout; we cap polling to ~5 minutes.
+            const deadline = Date.now() + 5 * 60 * 1000
+            while (Date.now() <= deadline) {
+                await new Promise((r) => setTimeout(r, 1500))
+
+                const statusResp = await fetch(
+                    apiUrl(`/api/oauth/google/status/${encodeURIComponent(flowId)}`),
+                )
+                const statusData = await statusResp.json().catch(() => ({}))
+
+                if (statusData.status === 'pending') continue
+                if (statusData.status === 'ready') {
+                    const gmailForm = {
+                        email: statusData.email || '',
+                        displayName: statusData.display_name || statusData.email || '',
+                        imapServer: 'imap.gmail.com',
+                        imapPort: '993',
+                        smtpServer: 'smtp.gmail.com',
+                        smtpPort: '465',
+                        password: '',
+                        sslMode: 'SSL',
+                        provider: 'gmail',
+                        flowId,
+                    }
+                    localStorage.setItem('temp_account_form', JSON.stringify(gmailForm))
+                    localStorage.setItem(
+                        'temp_language',
+                        localStorage.getItem('language') || 'en',
+                    )
+                    clearDraft()
+                    setGoogleBusy(false)
+                    navigate('/theme')
+                    return
+                }
+                // 'error' or 'unknown'
+                throw new Error(
+                    statusData.message || t('Google sign-in failed. Please try again.'),
+                )
+            }
+            throw new Error(t('Google sign-in timed out. Please try again.'))
+        } catch (err) {
+            setResponseMessage({
+                type: 'error',
+                text: err?.message || t('Google sign-in failed. Please try again.'),
+            })
+            setGoogleBusy(false)
+        }
     }
 
     const handleMicrosoftStub = () => {
@@ -760,11 +834,11 @@ function LoginPage() {
                             </div>
                         )}
 
-                        {screenMode === 'landing' && (
+                        {(screenMode === 'landing' || (screenMode === 'auto' && !activeAutoCandidate)) && (
                             <div className="login-page__social-actions">
-                                <button type="button" className="shortcut-button shortcut-button--alt" onClick={handleGoogleStub}>
+                                <button type="button" className="shortcut-button shortcut-button--alt" onClick={handleGoogleSignIn} disabled={googleBusy}>
                                     <img src="/icon-google.png" alt="Google Icon" className="button-icon" />
-                                    {t('Continue with Google')}
+                                    {googleBusy ? t('Signing in…') : t('Continue with Google')}
                                 </button>
                                 <button type="button" className="shortcut-button shortcut-button--alt" onClick={handleMicrosoftStub}>
                                     <img src="/icon-microsoft.png" alt="Microsoft Icon" className="button-icon" />
@@ -902,9 +976,9 @@ function LoginPage() {
                             {configMode === 'manual' && (
                                 <>
                                     <div className="login-page__social-actions">
-                                        <button type="button" className="shortcut-button shortcut-button--alt" onClick={handleGoogleStub}>
+                                        <button type="button" className="shortcut-button shortcut-button--alt" onClick={handleGoogleSignIn} disabled={googleBusy}>
                                             <img src="/icon-google.png" alt="Google Icon" className="button-icon" />
-                                            {t('Continue with Google')}
+                                            {googleBusy ? t('Signing in…') : t('Continue with Google')}
                                         </button>
                                         <button type="button" className="shortcut-button shortcut-button--alt" onClick={handleMicrosoftStub}>
                                             <img src="/icon-microsoft.png" alt="Microsoft Icon" className="button-icon" />

@@ -6,6 +6,103 @@ use std::net::TcpStream;
 use crate::i18n::tr;
 use tracing::warn;
 
+/// SASL `XOAUTH2` authenticator for Gmail (and any OAuth2 IMAP/SMTP server).
+///
+/// On the initial (empty) continuation the client sends
+/// `user=<email>\x01auth=Bearer <token>\x01\x01`; on a *non-empty* challenge
+/// (which Google only sends to describe an auth error) the spec requires an
+/// empty response so the exchange fails cleanly instead of looping.
+pub struct XOAuth2 {
+    pub user: String,
+    pub access_token: String,
+}
+
+impl imap::Authenticator for XOAuth2 {
+    type Response = String;
+    fn process(&self, challenge: &[u8]) -> Self::Response {
+        if challenge.is_empty() {
+            format!(
+                "user={}\x01auth=Bearer {}\x01\x01",
+                self.user, self.access_token
+            )
+        } else {
+            String::new()
+        }
+    }
+}
+
+/// Preview the mailbox list for a Gmail account using an OAuth2 access token.
+pub async fn preview_mailboxes_xoauth2(
+    server: &str,
+    email: &str,
+    access_token: &str,
+    port: u16,
+    ssl_mode: &str,
+) -> Result<Vec<String>, String> {
+    let server = server.to_string();
+    let email = email.to_string();
+    let access_token = access_token.to_string();
+    let ssl_mode = ssl_mode.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        inner_preview_mailboxes_xoauth2(&server, &email, &access_token, port, &ssl_mode)
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Unexpected error: {e}")))
+}
+
+fn inner_preview_mailboxes_xoauth2(
+    server: &str,
+    email: &str,
+    access_token: &str,
+    port: u16,
+    ssl_mode: &str,
+) -> Result<Vec<String>, String> {
+    let mut builder = TlsConnector::builder();
+    #[allow(deprecated)]
+    {
+        builder.danger_accept_invalid_certs(true);
+        builder.danger_accept_invalid_hostnames(true);
+    }
+    let tls = builder
+        .build()
+        .map_err(|e| format!("Unexpected error: {e}"))?;
+
+    let auth = XOAuth2 {
+        user: email.to_string(),
+        access_token: access_token.to_string(),
+    };
+
+    match ssl_mode.to_uppercase().as_str() {
+        "STARTTLS" => {
+            let client = imap::connect_starttls((server, port), server, &tls)
+                .map_err(|e| format!("Unexpected error: {e}"))?;
+            let mut session = client
+                .authenticate("XOAUTH2", &auth)
+                .map_err(|(e, _)| format!("{e}"))?;
+            let list = session
+                .list(Some(""), Some("*"))
+                .map_err(|e| format!("list mailbox failed: {e}"))?;
+            let mailboxes = list.iter().map(|n| crate::imap_utf7::decode(n.name())).collect();
+            let _ = session.logout();
+            Ok(mailboxes)
+        }
+        _ => {
+            let client = imap::connect((server, port), server, &tls)
+                .map_err(|e| format!("Unexpected error: {e}"))?;
+            let mut session = client
+                .authenticate("XOAUTH2", &auth)
+                .map_err(|(e, _)| format!("{e}"))?;
+            let list = session
+                .list(Some(""), Some("*"))
+                .map_err(|e| format!("list mailbox failed: {e}"))?;
+            let mailboxes = list.iter().map(|n| crate::imap_utf7::decode(n.name())).collect();
+            let _ = session.logout();
+            Ok(mailboxes)
+        }
+    }
+}
+
 pub async fn authorize(
     server: &str,
     email: &str,
@@ -250,7 +347,7 @@ fn perform_preview<T: Read + Write>(
     let list = session
         .list(Some(""), Some("*"))
         .map_err(|e| format!("list mailbox failed: {e}"))?;
-    let mailboxes = list.iter().map(|n| n.name().to_string()).collect();
+    let mailboxes = list.iter().map(|n| crate::imap_utf7::decode(n.name())).collect();
     let _ = session.logout();
     Ok(mailboxes)
 }

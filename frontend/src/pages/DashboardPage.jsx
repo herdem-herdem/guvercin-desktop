@@ -299,16 +299,50 @@ const FOLDER_MAP = {
     '[Gmail]/All Mail': { icon: <img src="/img/icons/all-mails.svg" alt="All Mails" className="svg-icon-inline" />, label: 'All Mail' },
 }
 
-function folderInfo(name) {
+// IMAP SPECIAL-USE role -> icon + canonical label. Recognising folders by
+// their server-provided role (instead of guessing from the name) lets us show
+// Gmail's special folders correctly regardless of the account's language.
+const ROLE_MAP = {
+    inbox: { icon: <img src="/img/icons/inbox.svg" alt="Inbox" className="svg-icon-inline" />, label: 'Inbox' },
+    drafts: { icon: <img src="/img/icons/draft.svg" alt="Drafts" className="svg-icon-inline" />, label: 'Drafts' },
+    sent: { icon: <img src="/img/icons/sentbox.svg" alt="Sent" className="svg-icon-inline" />, label: 'Sent Items' },
+    all: { icon: <img src="/img/icons/all-mails.svg" alt="All Mail" className="svg-icon-inline" />, label: 'All Mail' },
+    archive: { icon: <img src="/img/icons/archive.svg" alt="Archive" className="svg-icon-inline" />, label: 'Archive' },
+    junk: { icon: <img src="/img/icons/spambox.svg" alt="Spam" className="svg-icon-inline" />, label: 'Spam' },
+    trash: { icon: <img src="/img/icons/trash-bin.svg" alt="Trash" className="svg-icon-inline" />, label: 'Trash' },
+    flagged: { icon: <img src="/img/icons/label.svg" alt="Starred" className="svg-icon-inline" />, label: 'Starred' },
+    important: { icon: <img src="/img/icons/label.svg" alt="Important" className="svg-icon-inline" />, label: 'Important' },
+}
+
+// Sidebar ordering for special folders, keyed by role. Lower sorts first.
+const ROLE_SIDEBAR_PRIORITY = {
+    inbox: 10,
+    all: 20,
+    archive: 30,
+    drafts: 40,
+    flagged: 50,
+    sent: 60,
+    important: 70,
+    junk: 800,
+    trash: 810,
+}
+
+function folderInfo(name, role) {
+    if (role && ROLE_MAP[role]) {
+        return ROLE_MAP[role]
+    }
     const clean = name
         .replace(/^Folders\//i, '')
         .replace(/^Labels\//i, '')
         .replace(/^Labels\//i, '')
         .replace(/^\[Labels\]\//i, '')
+    // Show only the leaf segment; the parent hierarchy (e.g. "[Gmail]/") is
+    // already conveyed by the tree indentation, so repeating it is noise.
+    const leaf = clean.split('/').filter(Boolean).pop() || clean
     if (isLabelMailbox(name)) {
-        return { icon: <img src="/img/icons/label.svg" alt="Label" className="svg-icon-inline" />, label: clean }
+        return { icon: <img src="/img/icons/label.svg" alt="Label" className="svg-icon-inline" />, label: leaf }
     }
-    return FOLDER_MAP[clean] || FOLDER_MAP[name] || { icon: <img src="/img/icons/folder.svg" alt="Folder" className="svg-icon-inline" />, label: clean }
+    return FOLDER_MAP[clean] || FOLDER_MAP[name] || { icon: <img src="/img/icons/folder.svg" alt="Folder" className="svg-icon-inline" />, label: leaf }
 }
 
 function formatBytes(bytes) {
@@ -1251,6 +1285,10 @@ const DashboardPage = () => {
     const [connecting, setConnecting] = useState(false)
     const [folders, setFolders] = useState([])
     const [labels, setLabels] = useState([])
+    // Mailbox name -> IMAP SPECIAL-USE role, and the set of non-selectable
+    // container mailboxes (e.g. "[Gmail]") we flatten out of the tree.
+    const [mailboxRoles, setMailboxRoles] = useState({})
+    const [noselectMailboxes, setNoselectMailboxes] = useState([])
     const [mailboxCounts, setMailboxCounts] = useState({})
     const [selectedFolder, setSelectedFolder] = useState('INBOX')
     const [searchText, setSearchText] = useState('')
@@ -1646,6 +1684,10 @@ const DashboardPage = () => {
                 const normalized = normalizeMailboxResponse(data)
                 setFolders(prev => (JSON.stringify(prev) === JSON.stringify(normalized.allMailboxes) ? prev : normalized.allMailboxes))
                 setLabels(prev => (JSON.stringify(prev) === JSON.stringify(normalized.labels) ? prev : normalized.labels))
+                // The offline cache usually lacks SPECIAL-USE metadata; only
+                // overwrite when it actually carries it so we don't lose roles.
+                if (Object.keys(normalized.roles).length > 0) setMailboxRoles(normalized.roles)
+                if (normalized.noselect.length > 0) setNoselectMailboxes(normalized.noselect)
             }
 
             // Then try remote if online and backend is reachable
@@ -1658,6 +1700,9 @@ const DashboardPage = () => {
                         const normalized = normalizeMailboxResponse(data)
                         setFolders(prev => (JSON.stringify(prev) === JSON.stringify(normalized.allMailboxes) ? prev : normalized.allMailboxes))
                         setLabels(prev => (JSON.stringify(prev) === JSON.stringify(normalized.labels) ? prev : normalized.labels))
+                        // The live IMAP response is authoritative for roles.
+                        setMailboxRoles(prev => (JSON.stringify(prev) === JSON.stringify(normalized.roles) ? prev : normalized.roles))
+                        setNoselectMailboxes(prev => (JSON.stringify(prev) === JSON.stringify(normalized.noselect) ? prev : normalized.noselect))
                     }
                 }
             }
@@ -2468,11 +2513,11 @@ const DashboardPage = () => {
         const payload = buildDraftSavePayload(composed, email || accountEmailLabel)
         const response = await queueAction('save_draft', payload.draft_id, payload, 'Drafts')
         await loadFolders()
-        if (folderInfo(selectedFolder || '').label === 'Drafts') {
+        if (mailboxRoles[selectedFolder] === 'drafts' || folderInfo(selectedFolder || '').label === 'Drafts') {
             await loadMailsFromCache(selectedFolder || 'Drafts', 1, perPage)
         }
         return response?.draft_id || payload.draft_id || null
-    }, [accountEmailLabel, email, loadFolders, loadMailsFromCache, perPage, queueAction, selectedFolder])
+    }, [accountEmailLabel, email, loadFolders, loadMailsFromCache, mailboxRoles, perPage, queueAction, selectedFolder])
 
     const detachMailToWindow = async () => {
         if (!selectedMail) return
@@ -2978,6 +3023,8 @@ const DashboardPage = () => {
                                 ensureImapConnected={ensureImapConnected}
                                 folders={folders}
                                 labels={labels}
+                                mailboxRoles={mailboxRoles}
+                                noselectMailboxes={noselectMailboxes}
                                 selectedFolder={selectedFolder}
                                 setSelectedFolder={setSelectedFolder}
                                 mails={mails}
@@ -3346,7 +3393,7 @@ function MailSection({
     onClearSearch,
     onSelectFolder,
 	    ensureImapConnected,
-	    folders, labels, selectedFolder, setSelectedFolder, mails, setMails,
+	    folders, labels, mailboxRoles = {}, noselectMailboxes = [], selectedFolder, setSelectedFolder, mails, setMails,
 	    selectedMail, setSelectedMail, mailContent, setMailContent, loadingMails, loadingContent, setLoadingContent,
 	    connecting, loadMailsFromCache, syncMailsFromRemote, prefetchInlineAssets, isSyncing, setIsSyncing,
 	    openMail, detachMailToWindow, detachMailToWindowFromList, iframeRef, getShortTime,
@@ -4098,7 +4145,7 @@ function MailSection({
     const openMailOrDraft = useCallback(async (mail) => {
         if (!mail) return
         const mailbox = mail?.mailbox || selectedFolder || 'INBOX'
-        const isDraftMailbox = folderInfo(mailbox).label === 'Drafts'
+        const isDraftMailbox = mailboxRoles[mailbox] === 'drafts' || folderInfo(mailbox).label === 'Drafts'
         if (isDraftMailbox) {
             const content = await loadMailContentForDraft(mail)
             openInlineCompose({
@@ -4108,7 +4155,7 @@ function MailSection({
             return
         }
         await openMail(mail)
-    }, [hydrateComposeDraftFromSavedMail, loadMailContentForDraft, openInlineCompose, openMail, selectedFolder])
+    }, [hydrateComposeDraftFromSavedMail, loadMailContentForDraft, mailboxRoles, openInlineCompose, openMail, selectedFolder])
 
     const enqueueDelayedSend = useCallback(({ draft, target, onAfterClose, onUndoRestore, onCommitted }) => {
         let payload
@@ -4844,6 +4891,20 @@ function MailSection({
     }
 
     const resolveFolderDestination = (kind) => {
+        // Prefer matching by SPECIAL-USE role so move targets are correct even
+        // when the folder has a localised name (e.g. Gmail's "Çöp kutusu").
+        const roleForKind = {
+            Trash: 'trash',
+            Spam: 'junk',
+            Junk: 'junk',
+            Archive: 'archive',
+            Sent: 'sent',
+            Drafts: 'drafts',
+        }[kind]
+        if (roleForKind) {
+            const byRole = folders.find((folder) => mailboxRoles[folder] === roleForKind)
+            if (byRole) return byRole
+        }
         const match = folders.find((folder) => folderInfo(folder).label === kind)
         if (match) return match
         return kind
@@ -5111,7 +5172,7 @@ function MailSection({
     const openMailInTab = async (mail, existingContent) => {
         if (mail?.id != null) dismissNotificationForMail(mail.id)
         const mailbox = mail?.mailbox || selectedFolder || 'INBOX'
-        const isDraftMailbox = folderInfo(mailbox).label === 'Drafts'
+        const isDraftMailbox = mailboxRoles[mailbox] === 'drafts' || folderInfo(mailbox).label === 'Drafts'
         if (isDraftMailbox) {
             const content = existingContent || await loadMailContentForDraft(mail)
             openComposeInTab({
@@ -5631,8 +5692,16 @@ function MailSection({
                 if (ib !== -1) return 1
             }
 
-            const pa = defaultMailboxSidebarPriority(a.name)
-            const pb = defaultMailboxSidebarPriority(b.name)
+            // Prefer the server-provided role for ordering; fall back to the
+            // name-based heuristic for folders without a SPECIAL-USE role.
+            const roleA = mailboxRoles[a.fullPath]
+            const roleB = mailboxRoles[b.fullPath]
+            const pa = (roleA && ROLE_SIDEBAR_PRIORITY[roleA] !== undefined)
+                ? ROLE_SIDEBAR_PRIORITY[roleA]
+                : defaultMailboxSidebarPriority(a.name)
+            const pb = (roleB && ROLE_SIDEBAR_PRIORITY[roleB] !== undefined)
+                ? ROLE_SIDEBAR_PRIORITY[roleB]
+                : defaultMailboxSidebarPriority(b.name)
             if (pa !== pb) return pa - pb
             return a.name.localeCompare(b.name)
         }
@@ -5646,7 +5715,7 @@ function MailSection({
 
         sortTree(tree)
         return tree
-    }, [accountForm])
+    }, [accountForm, mailboxRoles])
 
     const toggleExpand = (e, path) => {
         e.stopPropagation()
@@ -5656,10 +5725,17 @@ function MailSection({
     }
 
     const folderMailboxes = useMemo(
-        () => folders.filter((mailbox) => !isLabelMailbox(mailbox) && !isMailboxSectionRoot(mailbox)),
-        [folders],
+        () => folders.filter((mailbox) => (
+            !isLabelMailbox(mailbox)
+            && !isMailboxSectionRoot(mailbox)
+            && !noselectMailboxes.includes(mailbox)
+        )),
+        [folders, noselectMailboxes],
     )
-    const folderTree = buildTree(folderMailboxes, ['Folders'])
+    // Treat non-selectable containers (e.g. Gmail's "[Gmail]") as namespace
+    // roots so their children are lifted to the top level instead of being
+    // buried under an unusable parent, matching how native clients present them.
+    const folderTree = buildTree(folderMailboxes, ['Folders', ...noselectMailboxes])
     const labelTree = buildTree(labels, LABEL_NAMESPACE_ROOTS)
 
     const renderFolderCountBadges = (fullPath) => {
@@ -5688,7 +5764,7 @@ function MailSection({
     }
 
     const renderFolderItem = (node, depth = 0) => {
-        const info = folderInfo(node.fullPath)
+        const info = folderInfo(node.fullPath, mailboxRoles[node.fullPath])
         const isSelected = listMode !== 'search' && selectedFolder === node.fullPath
         const isExpanded = expandedFolders.includes(node.fullPath)
         const hasChildren = node.children.length > 0
