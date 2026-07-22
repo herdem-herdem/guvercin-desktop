@@ -1105,5 +1105,57 @@ async fn init_user_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await;
 
+    // Task lists (a.k.a. to-do lists). A default list is created lazily the first
+    // time the Todo tab is opened (see todo_routes).
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS task_lists (
+            list_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL,
+            color      TEXT NOT NULL DEFAULT '#246bce',
+            is_default INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Tasks. The canonical task (subtasks, priority, …) lives in `task_json`; the
+    // flat columns are denormalized copies kept in sync on every write so listing,
+    // sorting and bucketing (overdue/today/upcoming) stay cheap. `due_ms` is naive
+    // wall-clock epoch millis, matching the calendar's convention.
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS tasks (
+            task_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            list_id      INTEGER REFERENCES task_lists(list_id) ON DELETE CASCADE,
+            uid          TEXT,
+            title        TEXT,
+            notes        TEXT,
+            due_ms       INTEGER,
+            has_due_time INTEGER NOT NULL DEFAULT 0,
+            priority     INTEGER NOT NULL DEFAULT 0,
+            completed    INTEGER NOT NULL DEFAULT 0,
+            completed_at DATETIME,
+            starred      INTEGER NOT NULL DEFAULT 0,
+            position     INTEGER NOT NULL DEFAULT 0,
+            task_json    TEXT,
+            created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_tasks_list ON tasks(list_id)")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_ms)")
+        .execute(pool)
+        .await;
+
     Ok(())
 }

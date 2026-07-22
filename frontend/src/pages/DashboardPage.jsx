@@ -15,6 +15,7 @@ import ComposeMailContent from '../components/ComposeMailContent.jsx'
 import MailHeadersPanel from '../components/MailHeadersPanel.jsx'
 import ContactsSection from '../components/ContactsSection.jsx'
 import CalendarSection from '../components/CalendarSection.jsx'
+import TodoSection from '../components/TodoSection.jsx'
 import {
     buildDraftSavePayload,
     getComposeTitle,
@@ -3088,12 +3089,12 @@ const DashboardPage = () => {
     ) : (
         <LayoutFrame region={mainBarRegion} bar={mainBarNode}>
             <LayoutFrame region={appsBarRegion} bar={appsBarNode}>
-                <div className={`db-main-container${(activeSection === 'contacts' || activeSection === 'calendar') ? ' db-main-container--flush' : ''}`}>
+                <div className={`db-main-container${(activeSection === 'contacts' || activeSection === 'calendar' || activeSection === 'todo') ? ' db-main-container--flush' : ''}`}>
                     <div className="db-content-area">
                         <div className="db-section-area">
                             {activeSection === 'calendar' && <CalendarSection accountId={accountId} toolbarStyle={toolbarStyle} />}
                             {activeSection === 'contacts' && <ContactsSection accountId={accountId} toolbarStyle={toolbarStyle} />}
-                            {activeSection === 'todo' && <TodoSection />}
+                            {activeSection === 'todo' && <TodoSection accountId={accountId} toolbarStyle={toolbarStyle} />}
                         </div>
                     </div>
                 </div>
@@ -8339,15 +8340,6 @@ function MailSection({
                 </div>
             )}
         </React.Fragment>
-    )
-}
-
-function TodoSection() {
-    return (
-        <div className="db-section-panel">
-            <h2>Todo</h2>
-            <p>Move your task lists here.</p>
-        </div>
     )
 }
 

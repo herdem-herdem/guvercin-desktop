@@ -25,10 +25,12 @@ use serde_json::{json, Value};
 
 use crate::{
     calendar_routes as cal, contacts_routes as con, db, db::AppState, error::AppError, oauth,
+    todo_routes as todo,
 };
 
 const CAL_LIST_URL: &str = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const PEOPLE_URL: &str = "https://people.googleapis.com/v1/people/me/connections";
+const TASKLISTS_URL: &str = "https://tasks.googleapis.com/tasks/v1/users/@me/lists";
 const RECONNECT_MSG: &str =
     "Reconnect your Google account to allow Calendar/Contacts access — sign out and sign in with Google again.";
 
@@ -522,4 +524,120 @@ pub async fn sync_contacts(
     }
 
     Ok(Json(json!({ "contacts": count })))
+}
+
+// ─────────────────────────── Tasks sync ───────────────────────────
+
+#[derive(Deserialize, Default)]
+struct TaskListsResp {
+    #[serde(default)]
+    items: Vec<GTaskList>,
+}
+
+#[derive(Deserialize, Default)]
+struct GTaskList {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    title: String,
+}
+
+#[derive(Deserialize, Default)]
+struct TasksResp {
+    #[serde(default)]
+    items: Vec<GTask>,
+    #[serde(default, rename = "nextPageToken")]
+    next_page_token: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct GTask {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    notes: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    due: Option<String>,
+}
+
+fn map_task(g: &GTask, list_id: i64) -> Option<todo::TaskCard> {
+    let title = g.title.clone().unwrap_or_default();
+    if title.trim().is_empty() {
+        return None;
+    }
+    let mut card = todo::TaskCard::default();
+    card.uid = format!("gtasks-{}", g.id);
+    card.list_id = Some(list_id);
+    card.title = title;
+    card.notes = g.notes.clone().unwrap_or_default();
+    card.completed = g.status.as_deref() == Some("completed");
+    // Google Tasks `due` is an RFC3339 timestamp but only the date is meaningful.
+    if let Some(due) = &g.due {
+        if due.len() >= 10 {
+            card.due = due[..10].to_string();
+        }
+    }
+    Some(card)
+}
+
+pub async fn sync_tasks(
+    State(state): State<Arc<AppState>>,
+    Path(account_id): Path<i64>,
+) -> Result<Json<Value>, AppError> {
+    let token = gmail_token(&state, account_id).await?;
+    let user_pool = db::get_user_db_pool(&state, account_id).await?;
+    let http = reqwest::Client::new();
+
+    let lists: TaskListsResp = google_get(&http, TASKLISTS_URL, &token).await?;
+    let mut total_tasks: i64 = 0;
+    let mut list_count: i64 = 0;
+
+    for gl in &lists.items {
+        let title = if gl.title.trim().is_empty() {
+            "Tasks".to_string()
+        } else {
+            gl.title.clone()
+        };
+        let local_list = todo::ensure_named_list(&user_pool, &format!("{title} (Google)")).await?;
+
+        let mut page_token: Option<String> = None;
+        let mut pages = 0;
+        loop {
+            pages += 1;
+            if pages > 20 {
+                break;
+            }
+            let mut url = Url::parse("https://tasks.googleapis.com/").unwrap();
+            url.path_segments_mut()
+                .unwrap()
+                .extend(&["tasks", "v1", "lists", &gl.id, "tasks"]);
+            {
+                let mut qp = url.query_pairs_mut();
+                qp.append_pair("showCompleted", "true");
+                qp.append_pair("showHidden", "true");
+                qp.append_pair("maxResults", "100");
+                if let Some(tok) = &page_token {
+                    qp.append_pair("pageToken", tok);
+                }
+            }
+            let resp: TasksResp = google_get(&http, url.as_str(), &token).await?;
+            for gt in &resp.items {
+                if let Some(card) = map_task(gt, local_list) {
+                    todo::upsert_task_by_uid(&user_pool, &card).await?;
+                    total_tasks += 1;
+                }
+            }
+            page_token = resp.next_page_token.clone();
+            if page_token.is_none() {
+                break;
+            }
+        }
+        list_count += 1;
+    }
+
+    Ok(Json(json!({ "tasks": total_tasks, "lists": list_count })))
 }

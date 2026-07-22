@@ -44,7 +44,7 @@ const USERINFO_ENDPOINT: &str = "https://openidconnect.googleapis.com/v1/userinf
 /// just authorized. Existing accounts keep their old (mail-only) refresh token
 /// until the user signs in again — Calendar/Contacts sync simply reports that a
 /// reconnect is needed until then.
-const SCOPES: &str = "https://mail.google.com/ https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/contacts openid email profile";
+const SCOPES: &str = "https://mail.google.com/ https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/contacts https://www.googleapis.com/auth/tasks openid email profile";
 
 /// Gmail connection defaults used when creating an account.
 pub const GMAIL_IMAP_HOST: &str = "imap.gmail.com";

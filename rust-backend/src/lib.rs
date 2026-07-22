@@ -20,6 +20,7 @@ mod offline_routes;
 mod routes;
 mod security_routes;
 pub mod smtp_send;
+mod todo_routes;
 
 use axum::{
     extract::DefaultBodyLimit,
@@ -197,6 +198,32 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
         .route(
             "/api/contacts/:account_id/google-sync",
             post(google_sync::sync_contacts),
+        )
+        .route(
+            "/api/tasks/:account_id",
+            get(todo_routes::list_tasks).post(todo_routes::create_task),
+        )
+        .route(
+            "/api/tasks/:account_id/lists",
+            get(todo_routes::get_lists).post(todo_routes::create_list),
+        )
+        .route(
+            "/api/tasks/:account_id/lists/:list_id",
+            axum::routing::put(todo_routes::update_list).delete(todo_routes::delete_list),
+        )
+        .route(
+            "/api/tasks/:account_id/clear-completed",
+            post(todo_routes::clear_completed),
+        )
+        .route(
+            "/api/tasks/:account_id/google-sync",
+            post(google_sync::sync_tasks),
+        )
+        .route(
+            "/api/tasks/:account_id/:task_id",
+            get(todo_routes::get_task)
+                .put(todo_routes::update_task)
+                .delete(todo_routes::delete_task),
         )
         .route(
             "/api/google/:account_id/status",
