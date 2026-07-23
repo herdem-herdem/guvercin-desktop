@@ -198,3 +198,38 @@ export async function googleSyncCalendar(accountId) {
   const res = await fetch(apiUrl(`/api/calendar/${accountId}/google-sync`), { method: 'POST' })
   return jsonOrThrow(res)
 }
+
+// ── CalDAV ──
+
+// Whether the account has a working CalDAV connection configured.
+export async function caldavStatus(accountId) {
+  try {
+    const res = await fetch(apiUrl(`/api/caldav/${accountId}/status`))
+    if (!res.ok) return { available: false, configured: false }
+    return res.json()
+  } catch {
+    return { available: false, configured: false }
+  }
+}
+
+// Current CalDAV connection settings (never returns the password, only hasPassword).
+export async function caldavGetConfig(accountId) {
+  const res = await fetch(apiUrl(`/api/caldav/${accountId}/config`))
+  return jsonOrThrow(res)
+}
+
+// Save connection settings. An empty url disconnects. Validated server-side against
+// the CalDAV server before it is persisted, so this throws on bad credentials/URL.
+export async function caldavSetConfig(accountId, { url, username, password }) {
+  const res = await fetch(apiUrl(`/api/caldav/${accountId}/config`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, username, password }),
+  })
+  return jsonOrThrow(res)
+}
+
+export async function caldavSyncCalendar(accountId) {
+  const res = await fetch(apiUrl(`/api/calendar/${accountId}/caldav-sync`), { method: 'POST' })
+  return jsonOrThrow(res)
+}

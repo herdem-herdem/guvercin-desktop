@@ -1140,7 +1140,7 @@ pub async fn export_events(
 
 // ── ICS writing ──
 
-fn build_ics(cards: &[EventCard]) -> String {
+pub fn build_ics(cards: &[EventCard]) -> String {
     let mut out = String::new();
     out.push_str("BEGIN:VCALENDAR\r\n");
     out.push_str("VERSION:2.0\r\n");
@@ -1426,7 +1426,7 @@ pub fn parse_rrule(value: &str) -> Recurrence {
     r
 }
 
-fn parse_ics(input: &str) -> Vec<EventCard> {
+pub fn parse_ics(input: &str) -> Vec<EventCard> {
     let lines = ics_unfold(input);
     let mut cards: Vec<EventCard> = Vec::new();
     let mut cur: Option<EventCard> = None;
@@ -1523,7 +1523,7 @@ fn parse_ics(input: &str) -> Vec<EventCard> {
 
 // ─────────────────────────── misc ───────────────────────────
 
-fn new_uid() -> String {
+pub fn new_uid() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

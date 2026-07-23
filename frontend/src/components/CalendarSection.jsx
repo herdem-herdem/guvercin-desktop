@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { requestNewCompose } from '../utils/mailtoInbox.js'
 import { requestNewTask, subscribeNewEvent } from '../utils/crossLinks.js'
 import {
+  caldavGetConfig, caldavSetConfig, caldavStatus, caldavSyncCalendar,
   createCalendar, createEvent, deleteCalendar, deleteEvent, emptyEvent, exportIcs,
   fetchCalendars, fetchEvents, formatIsoLocalDate, formatIsoLocalDateTime, getEvent,
   googleStatus, googleSyncCalendar,
@@ -65,6 +66,8 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   const [creatingCal, setCreatingCal] = useState(false)
   const [renamingCal, setRenamingCal] = useState(null)
   const [googleAvailable, setGoogleAvailable] = useState(false)
+  const [caldavAvailable, setCaldavAvailable] = useState(false)
+  const [caldavOpen, setCaldavOpen] = useState(false)
   const fileInputRef = useRef(null)
   const firedReminders = useRef(new Set())
   const reminderTimers = useRef([])
@@ -147,9 +150,10 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   }, [reloadEvents, search])
 
   useEffect(() => {
-    if (!accountId) { setGoogleAvailable(false); return }
+    if (!accountId) { setGoogleAvailable(false); setCaldavAvailable(false); return }
     let alive = true
     googleStatus(accountId).then((s) => { if (alive) setGoogleAvailable(!!s.available) }).catch(() => {})
+    caldavStatus(accountId).then((s) => { if (alive) setCaldavAvailable(!!s.available) }).catch(() => {})
     return () => { alive = false }
   }, [accountId])
 
@@ -383,14 +387,16 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   }, [accountId, pushToast])
 
   // Two-way sync. Reassigned every render so the auto-sync timer always calls the
-  // latest closure; a ref guard prevents overlapping runs.
-  // Google sync always runs quietly in the background — no button, no toast.
+  // latest closure; a ref guard prevents overlapping runs. Google and CalDAV both
+  // run quietly in the background — no button, no toast — whenever configured.
+  const syncEnabled = googleAvailable || caldavAvailable
   const runSyncRef = useRef(async () => {})
   runSyncRef.current = async () => {
-    if (!googleAvailable || syncBusy.current) return
+    if (!syncEnabled || syncBusy.current) return
     syncBusy.current = true
     try {
-      await googleSyncCalendar(accountId)
+      if (googleAvailable) await googleSyncCalendar(accountId)
+      if (caldavAvailable) await caldavSyncCalendar(accountId)
       await refreshAll({ silent: true })
     } catch { /* transient network / auth issues are non-fatal */ } finally {
       syncBusy.current = false
@@ -399,19 +405,19 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
 
   // Sync on every change (debounced so a burst of edits coalesces into one push).
   syncSoonRef.current = () => {
-    if (!googleAvailable) return
+    if (!syncEnabled) return
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
     syncTimerRef.current = setTimeout(() => runSyncRef.current(), 1200)
   }
   useEffect(() => () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }, [])
 
-  // Auto ("paso") sync: once when Google becomes available, then periodically.
+  // Auto ("paso") sync: once a backend becomes available, then periodically.
   useEffect(() => {
-    if (!googleAvailable) return undefined
+    if (!syncEnabled) return undefined
     runSyncRef.current()
     const id = setInterval(() => runSyncRef.current(), 30000)
     return () => clearInterval(id)
-  }, [googleAvailable])
+  }, [syncEnabled])
 
   // ── Calendar management ──
   const submitCreateCal = useCallback(async (name) => {
@@ -521,6 +527,12 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
           <li className="cal-toolbar-sep" aria-hidden="true" />
           <li><button className="db-submenu-main-btn" onClick={() => fileInputRef.current?.click()}>{btn(icon('folder'), t('Import'))}</button></li>
           <li><button className="db-submenu-main-btn" onClick={handleExport}>{btn(icon('save'), t('Export'))}</button></li>
+          <li className="cal-toolbar-sep" aria-hidden="true" />
+          <li>
+            <button className="db-submenu-main-btn" onClick={() => setCaldavOpen(true)} title={t('CalDAV account')}>
+              {btn(icon('settings'), caldavAvailable ? t('CalDAV ✓') : t('CalDAV'))}
+            </button>
+          </li>
         </ul>
       </div>
 
@@ -612,6 +624,13 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
           onDelete={draftMode === 'edit' && selected ? () => handleDelete(selected) : null} />
       )}
 
+      {/* ── CalDAV account modal ── */}
+      {caldavOpen && (
+        <CalDavSettings t={t} accountId={accountId} onClose={() => setCaldavOpen(false)}
+          onChanged={(available) => { setCaldavAvailable(available); if (available) runSyncRef.current() }}
+          pushToast={pushToast} />
+      )}
+
       <div className="cal-toasts">
         {toasts.map((toast) => (
           <div key={toast.id} className={`cal-toast cal-toast--${toast.type}`}>
@@ -619,6 +638,115 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
             <button className="cal-toast-close" onClick={() => dismissToast(toast.id)} title={t('Dismiss')}>✕</button>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────── CalDAV settings ───────────────────────────
+
+function CalDavSettings({ t, accountId, onClose, onChanged, pushToast }) {
+  const [url, setUrl] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [hasPassword, setHasPassword] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    caldavGetConfig(accountId)
+      .then((c) => {
+        if (!alive) return
+        setUrl(c.url || '')
+        setUsername(c.username || '')
+        setHasPassword(!!c.hasPassword)
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [accountId])
+
+  const configured = !!(url.trim() && username.trim() && (hasPassword || password))
+
+  const save = useCallback(async () => {
+    if (!url.trim() || !username.trim()) {
+      pushToast(t('Enter the server URL and username.'), 'error')
+      return
+    }
+    if (!hasPassword && !password) {
+      pushToast(t('Enter the CalDAV password.'), 'error')
+      return
+    }
+    setBusy(true)
+    try {
+      // Omit the password when keeping the saved one (leave it blank to preserve).
+      const res = await caldavSetConfig(accountId, { url: url.trim(), username: username.trim(), password })
+      const n = res && typeof res.calendars === 'number' ? res.calendars : null
+      pushToast(n != null ? t('Connected — {{count}} calendar(s) found.', { count: n }) : t('CalDAV connected.'), 'info')
+      onChanged(true)
+      onClose()
+    } catch (e) {
+      pushToast(e.message || t('Could not connect to CalDAV.'), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }, [accountId, url, username, password, hasPassword, onChanged, onClose, pushToast, t])
+
+  const disconnect = useCallback(async () => {
+    setBusy(true)
+    try {
+      await caldavSetConfig(accountId, { url: '', username: '', password: '' })
+      pushToast(t('CalDAV disconnected.'), 'info')
+      onChanged(false)
+      onClose()
+    } catch (e) {
+      pushToast(e.message || t('Could not update CalDAV.'), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }, [accountId, onChanged, onClose, pushToast, t])
+
+  return (
+    <div className="cal-modal-overlay" onClick={onClose}>
+      <div className="cal-editor cal-caldav" onClick={(e) => e.stopPropagation()}>
+        <div className="cal-editor-topbar">
+          <div className="cal-editor-title">{t('CalDAV account')}</div>
+          <div className="cal-editor-actions">
+            <button className="cal-btn" onClick={onClose}>{t('Cancel')}</button>
+            <button className="cal-btn cal-btn--primary" onClick={save} disabled={busy || loading}>
+              {busy ? t('Connecting…') : t('Connect')}
+            </button>
+          </div>
+        </div>
+
+        <div className="cal-editor-body">
+          <p className="cal-caldav-hint">
+            {t('Sync events two-way with any CalDAV server (Nextcloud, iCloud, Fastmail, mailbox.org, Radicale…). Most providers need an app-specific password.')}
+          </p>
+          <label className="cal-caldav-field">
+            <span>{t('Server URL')}</span>
+            <input className="cal-input" type="url" inputMode="url" autoFocus placeholder="https://caldav.example.com/"
+              value={url} onChange={(e) => setUrl(e.target.value)} />
+          </label>
+          <label className="cal-caldav-field">
+            <span>{t('Username')}</span>
+            <input className="cal-input" type="text" autoComplete="username" placeholder="you@example.com"
+              value={username} onChange={(e) => setUsername(e.target.value)} />
+          </label>
+          <label className="cal-caldav-field">
+            <span>{t('Password')}</span>
+            <input className="cal-input" type="password" autoComplete="new-password"
+              placeholder={hasPassword ? t('•••••••• (saved — leave blank to keep)') : t('App-specific password')}
+              value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+        </div>
+
+        <div className="cal-editor-footer">
+          {configured
+            ? <button className="cal-btn cal-btn--danger" onClick={disconnect} disabled={busy}>{t('Disconnect')}</button>
+            : <span />}
+        </div>
       </div>
     </div>
   )

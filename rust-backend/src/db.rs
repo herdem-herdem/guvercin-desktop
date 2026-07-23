@@ -567,6 +567,17 @@ async fn init_general_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await;
 
+    // CalDAV calendar sync config (see caldav_sync.rs). Stored on the account row
+    // like the IMAP password: a discovery/base URL plus username and password
+    // (usually an app-specific password). All three present ⇒ sync is available.
+    for col in [
+        "ALTER TABLE accounts ADD COLUMN caldav_url TEXT",
+        "ALTER TABLE accounts ADD COLUMN caldav_username TEXT",
+        "ALTER TABLE accounts ADD COLUMN caldav_password TEXT",
+    ] {
+        let _ = sqlx::query(col).execute(pool).await;
+    }
+
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS avatar_cache (

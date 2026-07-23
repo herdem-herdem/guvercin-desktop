@@ -433,6 +433,13 @@
 .cal-form-section { border-top: 1px solid var(--c-border-1); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 .cal-form-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-text-3); font-weight: 700; }
 
+/* CalDAV account modal */
+.cal-caldav { width: 460px; }
+.cal-caldav-hint { margin: 0 0 4px; font-size: 12px; line-height: 1.5; color: var(--c-text-3); }
+.cal-caldav-field { display: flex; flex-direction: column; gap: 5px; }
+.cal-caldav-field > span { font-size: 12px; font-weight: 600; color: var(--c-text-2); }
+.cal-caldav .cal-editor-footer { display: flex; justify-content: flex-start; min-height: 20px; }
+
 .cal-weekday-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .cal-weekday {
   width: 34px; height: 34px; border-radius: 50%;

@@ -1,5 +1,6 @@
 mod avatar;
 mod avatar_routes;
+mod caldav_sync;
 mod calendar_routes;
 mod contacts_routes;
 mod crypto;
@@ -195,6 +196,18 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
         .route(
             "/api/calendar/:account_id/google-sync",
             post(google_sync::sync_calendar),
+        )
+        .route(
+            "/api/calendar/:account_id/caldav-sync",
+            post(caldav_sync::sync_caldav),
+        )
+        .route(
+            "/api/caldav/:account_id/config",
+            get(caldav_sync::caldav_get_config).put(caldav_sync::caldav_put_config),
+        )
+        .route(
+            "/api/caldav/:account_id/status",
+            get(caldav_sync::caldav_status),
         )
         .route(
             "/api/contacts/:account_id/google-sync",
