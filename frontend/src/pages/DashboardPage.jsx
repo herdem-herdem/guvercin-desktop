@@ -1275,6 +1275,9 @@ const DashboardPage = () => {
     } = useTheme()
 
     const [activeSection, setActiveSection] = useState('mail')
+    // Shared search box for the non-mail workspaces (Contacts / Calendar / Todo).
+    // The main navbar search drives this so it searches whatever page you're on.
+    const [sectionSearch, setSectionSearch] = useState('')
     const [appLayout, setAppLayout] = useState({
         top: ['tools', 'main', 'tabs'],
         bottom: [],
@@ -1503,6 +1506,10 @@ const DashboardPage = () => {
         window.addEventListener('guvercin-shortcuts-changed', reload)
         return () => window.removeEventListener('guvercin-shortcuts-changed', reload)
     }, [])
+
+    // Clear the workspace search when moving between sections so a query typed
+    // on one page doesn't leak into the next.
+    useEffect(() => { setSectionSearch('') }, [activeSection])
 
     useEffect(() => {
         const onKeyDown = (event) => {
@@ -2702,6 +2709,11 @@ const DashboardPage = () => {
         : [timeMain, '']
     const timeBottom = timeSuffix ? `${timeBottomRaw} ${timeSuffix}`.trim() : timeBottomRaw
 
+    // The navbar search follows the active workspace: mail search on the Mail
+    // page, otherwise a live filter over the current page's own content.
+    // The placeholder stays "Search..." everywhere so the bar looks the same.
+    const isMailSection = activeSection === 'mail'
+
     const mainBarNode = (
             <div className={`db-navbar db-navbar--${mainBarRegion}`}>
                 <button
@@ -2716,7 +2728,40 @@ const DashboardPage = () => {
                 >
                     <img src="/img/logo/guvercin-righttext-nobackground.svg" alt="Guvercin" style={{ height: '100%', width: 'auto', display: 'block' }} />
                 </button>
-                {isMainBarVertical ? (
+                {!isMailSection ? (
+                    // Non-mail workspaces: a live filter over the current page's content.
+                    isMainBarVertical ? (
+                        <button
+                            type="button"
+                            className="db-search-compact-btn"
+                            onClick={() => {
+                                const input = document.querySelector('.db-search input')
+                                if (input) input.focus()
+                            }}
+                            title={t('Search')}
+                            aria-label={t('Search')}
+                        >
+                            <img src="/img/icons/search.svg" className="svg-icon-inline" />
+                        </button>
+                    ) : (
+                        <div className="db-search">
+                            <input
+                                type="search"
+                                placeholder="Search..."
+                                value={sectionSearch}
+                                onChange={(e) => setSectionSearch(e.target.value)}
+                            />
+                            <button
+                                type="button"
+                                className="db-search-btn"
+                                aria-label={t('Search')}
+                                title={t('Search')}
+                            >
+                                <img src="/img/icons/search.svg" className="svg-icon-inline" />
+                            </button>
+                        </div>
+                    )
+                ) : isMainBarVertical ? (
                     <button
                         type="button"
                         className="db-search-compact-btn"
@@ -3093,9 +3138,9 @@ const DashboardPage = () => {
                 <div className={`db-main-container${(activeSection === 'contacts' || activeSection === 'calendar' || activeSection === 'todo') ? ' db-main-container--flush' : ''}`}>
                     <div className="db-content-area">
                         <div className="db-section-area">
-                            {activeSection === 'calendar' && <CalendarSection accountId={accountId} toolbarStyle={toolbarStyle} />}
-                            {activeSection === 'contacts' && <ContactsSection accountId={accountId} toolbarStyle={toolbarStyle} />}
-                            {activeSection === 'todo' && <TodoSection accountId={accountId} toolbarStyle={toolbarStyle} />}
+                            {activeSection === 'calendar' && <CalendarSection accountId={accountId} toolbarStyle={toolbarStyle} searchQuery={sectionSearch} />}
+                            {activeSection === 'contacts' && <ContactsSection accountId={accountId} toolbarStyle={toolbarStyle} searchQuery={sectionSearch} />}
+                            {activeSection === 'todo' && <TodoSection accountId={accountId} toolbarStyle={toolbarStyle} searchQuery={sectionSearch} />}
                         </div>
                     </div>
                 </div>

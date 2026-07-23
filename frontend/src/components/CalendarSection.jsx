@@ -46,7 +46,7 @@ function downloadText(filename, text, mime = 'text/calendar;charset=utf-8') {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_small' }) {
+export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_small', searchQuery }) {
   const { t, i18n } = useTranslation()
   const locale = i18n.language || 'en'
 
@@ -55,7 +55,8 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   const [loading, setLoading] = useState(false)
   const [view, setView] = useState(() => localStorage.getItem('calendar_view') || 'month')
   const [cursor, setCursor] = useState(() => startOfDay(new Date()))
-  const [search, setSearch] = useState('')
+  // Search is driven entirely by the app navbar (searchQuery prop).
+  const search = searchQuery || ''
   const [selected, setSelected] = useState(null) // event instance being viewed
   const [draft, setDraft] = useState(null) // event card being edited
   const [draftMode, setDraftMode] = useState('create') // 'create' | 'edit'
@@ -64,11 +65,12 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   const [creatingCal, setCreatingCal] = useState(false)
   const [renamingCal, setRenamingCal] = useState(null)
   const [googleAvailable, setGoogleAvailable] = useState(false)
-  const [syncingGoogle, setSyncingGoogle] = useState(false)
   const fileInputRef = useRef(null)
   const firedReminders = useRef(new Set())
   const reminderTimers = useRef([])
   const syncBusy = useRef(false)
+  const syncTimerRef = useRef(null)
+  const syncSoonRef = useRef(() => {})
 
   const pushToast = useCallback((text, type = 'info') => {
     const id = `${Date.now()}-${Math.random()}`
@@ -119,9 +121,10 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
     }
   }, [accountId])
 
-  const reloadEvents = useCallback(async () => {
+  // `silent` skips the loading spinner — used by the background auto-refresh.
+  const reloadEvents = useCallback(async ({ silent = false } = {}) => {
     if (!accountId) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const rows = await fetchEvents(accountId, {
         from: naiveMsLocal(range.start),
@@ -131,15 +134,15 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
       })
       setEvents((rows || []).map((r) => ({ ...r, card: normalizeEvent(r.card) })))
     } catch (e) {
-      pushToast(e.message || 'Failed to load events', 'error')
+      if (!silent) pushToast(e.message || 'Failed to load events', 'error')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [accountId, range, search, visibleCalIds, pushToast])
 
   useEffect(() => { reloadCalendars() }, [reloadCalendars])
   useEffect(() => {
-    const id = setTimeout(reloadEvents, search ? 220 : 0)
+    const id = setTimeout(() => reloadEvents(), search ? 220 : 0)
     return () => clearTimeout(id)
   }, [reloadEvents, search])
 
@@ -150,9 +153,18 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
     return () => { alive = false }
   }, [accountId])
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([reloadEvents(), reloadCalendars()])
+  const refreshAll = useCallback(async (opts) => {
+    await Promise.all([reloadEvents(opts), reloadCalendars()])
   }, [reloadEvents, reloadCalendars])
+
+  // Keep events fresh with no manual "refresh": re-fetch quietly every 5s.
+  const refreshAllRef = useRef(refreshAll)
+  useEffect(() => { refreshAllRef.current = refreshAll }, [refreshAll])
+  useEffect(() => {
+    if (!accountId) return undefined
+    const id = setInterval(() => { refreshAllRef.current({ silent: true }) }, 5000)
+    return () => clearInterval(id)
+  }, [accountId])
 
   // ── Reminder scheduling: fire a notification/toast as reminders come due. ──
   useEffect(() => {
@@ -303,6 +315,7 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
         pushToast(t('Event saved'))
       }
       await refreshAll()
+      syncSoonRef.current()
       setDraft(null)
       setSelected(null)
       void rec
@@ -325,6 +338,7 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
       setSelected(null)
       setDraft(null)
       await refreshAll()
+      syncSoonRef.current()
       pushToast(t('Event deleted'))
     } catch (e) {
       pushToast(e.message || 'Delete failed', 'error')
@@ -350,6 +364,7 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
       }
       const result = await importIcs(accountId, text, { calendarId: defaultCalendarId })
       await refreshAll()
+      syncSoonRef.current()
       const parts = []
       if (result.imported) parts.push(t('{{n}} imported', { n: result.imported }))
       if (result.skipped) parts.push(t('{{n}} skipped', { n: result.skipped }))
@@ -369,29 +384,32 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
 
   // Two-way sync. Reassigned every render so the auto-sync timer always calls the
   // latest closure; a ref guard prevents overlapping runs.
+  // Google sync always runs quietly in the background — no button, no toast.
   const runSyncRef = useRef(async () => {})
-  runSyncRef.current = async ({ silent = false } = {}) => {
+  runSyncRef.current = async () => {
     if (!googleAvailable || syncBusy.current) return
     syncBusy.current = true
-    setSyncingGoogle(true)
     try {
-      const r = await googleSyncCalendar(accountId)
-      await refreshAll()
-      if (!silent) pushToast(t('Synced with Google — {{in}} in, {{out}} out', { in: r.pulled || 0, out: r.pushed || 0 }))
-    } catch (e) {
-      if (!silent) pushToast(e.message || 'Google sync failed', 'error')
-    } finally {
+      await googleSyncCalendar(accountId)
+      await refreshAll({ silent: true })
+    } catch { /* transient network / auth issues are non-fatal */ } finally {
       syncBusy.current = false
-      setSyncingGoogle(false)
     }
   }
-  const handleGoogleSync = useCallback(() => runSyncRef.current({ silent: false }), [])
 
-  // Auto ("paso") sync: once when Google becomes available, then on an interval.
+  // Sync on every change (debounced so a burst of edits coalesces into one push).
+  syncSoonRef.current = () => {
+    if (!googleAvailable) return
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = setTimeout(() => runSyncRef.current(), 1200)
+  }
+  useEffect(() => () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }, [])
+
+  // Auto ("paso") sync: once when Google becomes available, then periodically.
   useEffect(() => {
     if (!googleAvailable) return undefined
-    runSyncRef.current({ silent: true })
-    const id = setInterval(() => runSyncRef.current({ silent: true }), 60000)
+    runSyncRef.current()
+    const id = setInterval(() => runSyncRef.current(), 30000)
     return () => clearInterval(id)
   }, [googleAvailable])
 
@@ -405,6 +423,7 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
     try {
       await createCalendar(accountId, { name: trimmed, color })
       await reloadCalendars()
+      syncSoonRef.current()
     } catch (e) {
       pushToast(e.message || 'Could not create calendar', 'error')
     }
@@ -417,6 +436,7 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
     try {
       await updateCalendar(accountId, calendarId, { name: trimmed })
       await reloadCalendars()
+      syncSoonRef.current()
     } catch (e) {
       pushToast(e.message || 'Could not rename calendar', 'error')
     }
@@ -447,6 +467,7 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
     try {
       await deleteCalendar(accountId, cal.calendarId)
       await refreshAll()
+      syncSoonRef.current()
       pushToast(t('Calendar deleted'))
     } catch (e) {
       pushToast(e.message || 'Could not delete calendar', 'error')
@@ -497,14 +518,9 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
           <li><button className="db-submenu-main-btn" onClick={() => startCreate()}>{btn(icon('plus'), t('New event'))}</button></li>
           <li className="cal-toolbar-sep" aria-hidden="true" />
           <li><button className="db-submenu-main-btn" onClick={() => setCreatingCal(true)}>{btn(icon('label'), t('New calendar'))}</button></li>
-          <li><button className="db-submenu-main-btn" onClick={refreshAll}>{btn(icon('reload'), t('Refresh'))}</button></li>
           <li className="cal-toolbar-sep" aria-hidden="true" />
           <li><button className="db-submenu-main-btn" onClick={() => fileInputRef.current?.click()}>{btn(icon('folder'), t('Import'))}</button></li>
           <li><button className="db-submenu-main-btn" onClick={handleExport}>{btn(icon('save'), t('Export'))}</button></li>
-          {googleAvailable && <li className="cal-toolbar-sep" aria-hidden="true" />}
-          {googleAvailable && (
-            <li><button className="db-submenu-main-btn" onClick={handleGoogleSync} disabled={syncingGoogle}>{btn(icon('online'), syncingGoogle ? t('Syncing…') : t('Sync with Google'))}</button></li>
-          )}
         </ul>
       </div>
 
@@ -518,9 +534,6 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
           {loading && <span className="cal-loading">•••</span>}
         </div>
         <div className="cal-nav-right">
-          <div className="cal-search-wrap">
-            <input className="cal-search" type="search" placeholder={t('Search events')} value={search} onChange={(e) => setSearch(e.target.value)} />
-          </div>
           <div className="cal-view-tabs">
             {VIEW_TABS.map((v) => (
               <button key={v.key} className={`cal-view-tab ${view === v.key ? 'active' : ''}`} onClick={() => setView(v.key)}>{v.label}</button>

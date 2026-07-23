@@ -68,13 +68,14 @@ function slugifyFilename(name) {
 
 const icon = (name) => <img src={`/img/icons/${name}.svg`} className="svg-icon-inline" alt="" />
 
-export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_small' }) {
+export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_small', searchQuery }) {
   const { t } = useTranslation()
   const [contacts, setContacts] = useState([])
   const [lists, setLists] = useState([])
   const [counts, setCounts] = useState({ total: 0, favorites: 0 })
   const [loading, setLoading] = useState(false)
-  const [search, setSearch] = useState('')
+  // Search is driven entirely by the app navbar (searchQuery prop).
+  const search = searchQuery || ''
   const [showFavorites, setShowFavorites] = useState(false)
   const [activeList, setActiveList] = useState(null) // list_id or null
   const [selectedId, setSelectedId] = useState(null)
@@ -85,9 +86,10 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
   const [creatingList, setCreatingList] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [googleAvailable, setGoogleAvailable] = useState(false)
-  const [syncingGoogle, setSyncingGoogle] = useState(false)
   const fileInputRef = useRef(null)
   const syncBusy = useRef(false)
+  const syncTimerRef = useRef(null)
+  const syncSoonRef = useRef(() => {})
 
   const pushToast = useCallback((text, type = 'info') => {
     const id = `${Date.now()}-${Math.random()}`
@@ -107,21 +109,22 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
     }
   }, [accountId])
 
-  const reload = useCallback(async () => {
+  // `silent` skips the loading spinner — used by the background auto-refresh.
+  const reload = useCallback(async ({ silent = false } = {}) => {
     if (!accountId) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const rows = await fetchContacts(accountId, { search, favorites: showFavorites, list: activeList })
       setContacts(rows.map((r) => ({ ...r, card: normalizeCard(r.card) })))
     } catch (e) {
-      pushToast(e.message || 'Failed to load contacts', 'error')
+      if (!silent) pushToast(e.message || 'Failed to load contacts', 'error')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [accountId, search, showFavorites, activeList, pushToast])
 
   useEffect(() => {
-    const id = setTimeout(reload, search ? 220 : 0)
+    const id = setTimeout(() => reload(), search ? 220 : 0)
     return () => clearTimeout(id)
   }, [reload, search])
 
@@ -134,9 +137,18 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
     return () => { alive = false }
   }, [accountId])
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([reload(), reloadLists()])
+  const refreshAll = useCallback(async (opts) => {
+    await Promise.all([reload(opts), reloadLists()])
   }, [reload, reloadLists])
+
+  // Keep the list fresh with no manual "refresh": re-fetch quietly every 5s.
+  const refreshAllRef = useRef(refreshAll)
+  useEffect(() => { refreshAllRef.current = refreshAll }, [refreshAll])
+  useEffect(() => {
+    if (!accountId) return undefined
+    const id = setInterval(() => { refreshAllRef.current({ silent: true }) }, 5000)
+    return () => clearInterval(id)
+  }, [accountId])
 
   const selected = useMemo(
     () => contacts.find((c) => c.id === selectedId) || null,
@@ -191,6 +203,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
         pushToast(t('Contact saved'))
       }
       await refreshAll()
+      syncSoonRef.current()
       setSelectedId(rec.id)
       setMode('view')
       setDraft(null)
@@ -209,6 +222,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
       await deleteContact(accountId, target.id)
       if (selectedId === target.id) { setSelectedId(null); setMode('view') }
       await refreshAll()
+      syncSoonRef.current()
       pushToast(t('Contact deleted'))
     } catch (e) {
       pushToast(e.message || 'Delete failed', 'error')
@@ -219,6 +233,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
     try {
       await updateContact(accountId, rec.id, { ...normalizeCard(rec.card), isFavorite: !rec.card.isFavorite })
       await refreshAll()
+      syncSoonRef.current()
     } catch (e) {
       pushToast(e.message || 'Update failed', 'error')
     }
@@ -236,6 +251,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
       }
       const result = await importVcf(accountId, text, { merge: true })
       await refreshAll()
+      syncSoonRef.current()
       const parts = []
       if (result.imported) parts.push(t('{{n}} added', { n: result.imported }))
       if (result.updated) parts.push(t('{{n}} updated', { n: result.updated }))
@@ -254,29 +270,32 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
     }
   }, [accountId, pushToast])
 
+  // Google sync always runs quietly in the background — no button, no toast.
   const runSyncRef = useRef(async () => {})
-  runSyncRef.current = async ({ silent = false } = {}) => {
+  runSyncRef.current = async () => {
     if (!googleAvailable || syncBusy.current) return
     syncBusy.current = true
-    setSyncingGoogle(true)
     try {
-      const r = await googleSyncContacts(accountId)
-      await refreshAll()
-      if (!silent) pushToast(t('Synced with Google — {{in}} in, {{out}} out', { in: r.pulled || 0, out: r.pushed || 0 }))
-    } catch (e) {
-      if (!silent) pushToast(e.message || 'Google sync failed', 'error')
-    } finally {
+      await googleSyncContacts(accountId)
+      await refreshAll({ silent: true })
+    } catch { /* transient network / auth issues are non-fatal */ } finally {
       syncBusy.current = false
-      setSyncingGoogle(false)
     }
   }
-  const handleGoogleSync = useCallback(() => runSyncRef.current({ silent: false }), [])
 
-  // Auto ("paso") sync: once when Google becomes available, then on an interval.
+  // Sync on every change (debounced so a burst of edits coalesces into one push).
+  syncSoonRef.current = () => {
+    if (!googleAvailable) return
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = setTimeout(() => runSyncRef.current(), 1200)
+  }
+  useEffect(() => () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }, [])
+
+  // Auto ("paso") sync: once when Google becomes available, then periodically.
   useEffect(() => {
     if (!googleAvailable) return undefined
-    runSyncRef.current({ silent: true })
-    const id = setInterval(() => runSyncRef.current({ silent: true }), 60000)
+    runSyncRef.current()
+    const id = setInterval(() => runSyncRef.current(), 30000)
     return () => clearInterval(id)
   }, [googleAvailable])
 
@@ -319,6 +338,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
     try {
       const l = await createList(accountId, trimmed)
       await reloadLists()
+      syncSoonRef.current()
       setShowFavorites(false)
       setActiveList(l.list_id)
     } catch (e) {
@@ -333,6 +353,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
     try {
       await renameList(accountId, listId, trimmed)
       await refreshAll()
+      syncSoonRef.current()
     } catch (e) {
       pushToast(e.message || 'Could not rename list', 'error')
     }
@@ -344,6 +365,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
       await deleteList(accountId, list.list_id)
       if (activeList === list.list_id) setActiveList(null)
       await refreshAll()
+      syncSoonRef.current()
       pushToast(t('List deleted'))
     } catch (e) {
       pushToast(e.message || 'Could not delete list', 'error')
@@ -387,10 +409,6 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
           <li className="cs-toolbar-sep" aria-hidden="true" />
           <li><button className="db-submenu-main-btn" onClick={() => fileInputRef.current?.click()}>{btn(icon('folder'), t('Import'))}</button></li>
           <li><button className="db-submenu-main-btn" onClick={handleExportAll}>{btn(icon('save'), t('Export'))}</button></li>
-          {googleAvailable && <li className="cs-toolbar-sep" aria-hidden="true" />}
-          {googleAvailable && (
-            <li><button className="db-submenu-main-btn" onClick={handleGoogleSync} disabled={syncingGoogle}>{btn(icon('online'), syncingGoogle ? t('Syncing…') : t('Sync with Google'))}</button></li>
-          )}
         </ul>
       </div>
 
@@ -453,9 +471,6 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
 
         {/* ── Contact list ── */}
         <aside className="cs-list-pane">
-          <div className="cs-search-row">
-            <input className="cs-search" type="search" placeholder={t('Search contacts')} value={search} onChange={(e) => setSearch(e.target.value)} />
-          </div>
           <div className="cs-count">{loading ? t('Loading…') : t('{{n}} contacts', { n: contacts.length })}</div>
 
           <div className="cs-list">

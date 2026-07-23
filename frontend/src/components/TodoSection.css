@@ -87,15 +87,7 @@
 }
 .td-search:focus { border-color: var(--c-primary); }
 
-.td-quickadd {
-  display: flex; align-items: center; gap: 8px; margin: 4px 22px 8px;
-  border: 1px solid var(--c-border-2); border-radius: 10px; background: var(--c-surface-2); padding: 4px 12px;
-}
-.td-quickadd:focus-within { border-color: var(--c-primary); }
-.td-quickadd-plus { color: var(--c-text-3); font-size: 18px; }
-.td-quickadd-input { flex: 1; border: none; background: transparent; color: var(--c-text-1); padding: 8px 0; font-size: 14px; outline: none; }
-
-.td-scroll { flex: 1; overflow-y: auto; min-height: 0; padding: 0 14px 20px; }
+.td-scroll { flex: 1; overflow-y: auto; min-height: 0; padding: 12px 14px 20px; }
 .td-empty { margin: auto; text-align: center; color: var(--c-text-2); padding: 50px 20px; }
 .td-empty-icon { font-size: 40px; margin-bottom: 8px; }
 
@@ -186,9 +178,32 @@
 .td-labeled { display: flex; flex-direction: column; gap: 4px; }
 .td-labeled > span { font-size: 12px; color: var(--c-text-3); }
 .td-datetime { display: flex; gap: 6px; }
-.td-due-toggles > div { display: flex; gap: 14px; align-items: center; padding-top: 6px; }
-.td-check-label { }
 .td-check.td-check--sm.td-check--ghost { pointer-events: none; }
+
+/* Prominent "important" toggle in the editor */
+.td-important-toggle {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  border: 1px solid var(--c-border-2); background: var(--c-surface-2); color: var(--c-text-1);
+  border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 600;
+  cursor: pointer; text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.td-important-toggle:hover { background: var(--c-surface-3); }
+.td-important-toggle .td-important-star { font-size: 18px; line-height: 1; color: var(--c-text-3); }
+.td-important-toggle.on { border-color: var(--c-primary); background: var(--c-primary-soft); }
+.td-important-toggle.on .td-important-star { color: var(--c-primary); }
+
+/* Inline "set a time" checkbox aligned with the due-date input.
+   Uses its own class so it doesn't inherit the round .td-check button style. */
+.td-inline-check {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 36px; font-size: 13px; color: var(--c-text-2);
+  cursor: pointer; white-space: nowrap;
+}
+.td-inline-check input {
+  width: 16px; height: 16px; margin: 0; flex: none;
+  accent-color: var(--c-primary); cursor: pointer;
+}
 
 .td-form-section { border-top: 1px solid var(--c-border-1); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
 .td-form-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-text-3); font-weight: 700; }
@@ -199,11 +214,6 @@
 .td-add-btn { border: 1px dashed var(--c-border-2); background: transparent; color: var(--c-accent-2); border-radius: 8px; height: 30px; font-size: 16px; cursor: pointer; }
 .td-add-btn:hover { background: var(--c-surface-3); }
 .td-add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* label helper used by the editor for inline checkboxes */
-.td-check + span, label.td-check { }
-label.td-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--c-text-2); cursor: pointer; }
-label.td-check input { accent-color: var(--c-primary); }
 
 /* Toasts */
 .td-toasts { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 60; pointer-events: none; }

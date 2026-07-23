@@ -46,7 +46,7 @@ function dueLabel(task, locale, t) {
   return base
 }
 
-export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small' }) {
+export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small', searchQuery }) {
   const { t, i18n } = useTranslation()
   const locale = i18n.language || 'en'
 
@@ -55,16 +55,15 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(false)
   const [view, setView] = useState({ kind: 'all', listId: null })
-  const [search, setSearch] = useState('')
+  // Search is driven entirely by the app navbar (searchQuery prop).
+  const search = searchQuery || ''
   const [draft, setDraft] = useState(null)
   const [draftId, setDraftId] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [quickTitle, setQuickTitle] = useState('')
   const [showCompleted, setShowCompleted] = useState(false)
   const [creatingList, setCreatingList] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [googleAvailable, setGoogleAvailable] = useState(false)
-  const [syncingGoogle, setSyncingGoogle] = useState(false)
   const [toasts, setToasts] = useState([])
   const syncBusy = useRef(false)
 
@@ -84,23 +83,25 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
     } catch { /* non-fatal */ }
   }, [accountId])
 
-  const reload = useCallback(async () => {
+  // `silent` skips the loading spinner — used by the background auto-refresh so
+  // it doesn't flicker the UI every few seconds.
+  const reload = useCallback(async ({ silent = false } = {}) => {
     if (!accountId) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const list = view.kind === 'list' ? view.listId : null
       const rows = await fetchTasks(accountId, { list, search })
       setTasks((rows || []).map((r) => ({ ...r, card: normalizeTask(r.card) })))
     } catch (e) {
-      pushToast(e.message || 'Failed to load tasks', 'error')
+      if (!silent) pushToast(e.message || 'Failed to load tasks', 'error')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [accountId, view, search, pushToast])
 
   useEffect(() => { reloadLists() }, [reloadLists])
   useEffect(() => {
-    const id = setTimeout(reload, search ? 220 : 0)
+    const id = setTimeout(() => reload(), search ? 220 : 0)
     return () => clearTimeout(id)
   }, [reload, search])
   useEffect(() => {
@@ -110,7 +111,47 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
     return () => { alive = false }
   }, [accountId])
 
-  const refreshAll = useCallback(async () => { await Promise.all([reload(), reloadLists()]) }, [reload, reloadLists])
+  const refreshAll = useCallback(async (opts) => { await Promise.all([reload(opts), reloadLists()]) }, [reload, reloadLists])
+
+  // Keep the list fresh without any manual "refresh": re-fetch quietly every 5s
+  // while the page is open (on top of the immediate refresh each action does).
+  const refreshAllRef = useRef(refreshAll)
+  useEffect(() => { refreshAllRef.current = refreshAll }, [refreshAll])
+  useEffect(() => {
+    if (!accountId) return undefined
+    const id = setInterval(() => { refreshAllRef.current({ silent: true }) }, 5000)
+    return () => clearInterval(id)
+  }, [accountId])
+
+  // ── Google sync (always on, no button) ──
+  // Runs quietly in the background: on every change (debounced), periodically,
+  // and once Google becomes available.
+  const runSyncRef = useRef(async () => {})
+  runSyncRef.current = async () => {
+    if (!googleAvailable || syncBusy.current) return
+    syncBusy.current = true
+    try {
+      await googleSyncTasks(accountId)
+      await refreshAll({ silent: true })
+    } catch { /* transient network / auth issues are non-fatal */ } finally {
+      syncBusy.current = false
+    }
+  }
+
+  const syncTimerRef = useRef(null)
+  const syncSoon = useCallback(() => {
+    if (!googleAvailable) return
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = setTimeout(() => runSyncRef.current(), 1200)
+  }, [googleAvailable])
+  useEffect(() => () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }, [])
+
+  useEffect(() => {
+    if (!googleAvailable) return undefined
+    runSyncRef.current()
+    const id = setInterval(() => runSyncRef.current(), 30000)
+    return () => clearInterval(id)
+  }, [googleAvailable])
 
   const defaultListId = useMemo(() => {
     const def = lists.find((l) => l.isDefault) || lists[0]
@@ -180,13 +221,14 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
       if (draftId) { await updateTask(accountId, draftId, draft); pushToast(t('Task saved')) }
       else { await createTask(accountId, draft); pushToast(t('Task added')) }
       await refreshAll()
+      syncSoon()
       setDraft(null); setDraftId(null)
     } catch (e) {
       pushToast(e.message || 'Save failed', 'error')
     } finally {
       setSaving(false)
     }
-  }, [accountId, draft, draftId, refreshAll, pushToast, t])
+  }, [accountId, draft, draftId, refreshAll, syncSoon, pushToast, t])
 
   const handleDelete = useCallback(async (rec) => {
     const id = rec ? rec.id : draftId
@@ -196,11 +238,12 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
       await deleteTask(accountId, id)
       setDraft(null); setDraftId(null)
       await refreshAll()
+      syncSoon()
       pushToast(t('Task deleted'))
     } catch (e) {
       pushToast(e.message || 'Delete failed', 'error')
     }
-  }, [accountId, draftId, refreshAll, pushToast, t])
+  }, [accountId, draftId, refreshAll, syncSoon, pushToast, t])
 
   const toggleComplete = useCallback(async (rec) => {
     const next = !rec.card.completed
@@ -208,11 +251,12 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
     try {
       await updateTask(accountId, rec.id, { ...normalizeTask(rec.card), completed: next })
       reloadLists()
+      syncSoon()
     } catch (e) {
       pushToast(e.message || 'Update failed', 'error')
       reload()
     }
-  }, [accountId, reloadLists, reload, pushToast])
+  }, [accountId, reloadLists, reload, syncSoon, pushToast])
 
   const toggleStar = useCallback(async (rec) => {
     const next = !rec.card.starred
@@ -220,28 +264,12 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
     try {
       await updateTask(accountId, rec.id, { ...normalizeTask(rec.card), starred: next })
       reloadLists()
+      syncSoon()
     } catch (e) {
       pushToast(e.message || 'Update failed', 'error')
       reload()
     }
-  }, [accountId, reloadLists, reload, pushToast])
-
-  const quickAdd = useCallback(async () => {
-    const title = quickTitle.trim()
-    if (!title) return
-    setQuickTitle('')
-    const card = emptyTask()
-    card.title = title
-    card.listId = activeListId
-    if (view.kind === 'today') card.due = formatIsoLocalDate(new Date())
-    if (view.kind === 'important') card.starred = true
-    try {
-      await createTask(accountId, card)
-      await refreshAll()
-    } catch (e) {
-      pushToast(e.message || 'Could not add task', 'error')
-    }
-  }, [quickTitle, activeListId, view, accountId, refreshAll, pushToast])
+  }, [accountId, reloadLists, reload, syncSoon, pushToast])
 
   const handleClearCompleted = useCallback(async () => {
     if (!completed.length) return
@@ -249,37 +277,12 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
     try {
       await clearCompleted(accountId, view.kind === 'list' ? view.listId : null)
       await refreshAll()
+      syncSoon()
       pushToast(t('Completed tasks removed'))
     } catch (e) {
       pushToast(e.message || 'Failed', 'error')
     }
-  }, [accountId, completed.length, view, refreshAll, pushToast, t])
-
-  const runSyncRef = useRef(async () => {})
-  runSyncRef.current = async ({ silent = false } = {}) => {
-    if (!googleAvailable || syncBusy.current) return
-    syncBusy.current = true
-    setSyncingGoogle(true)
-    try {
-      const r = await googleSyncTasks(accountId)
-      await refreshAll()
-      if (!silent) pushToast(t('Synced with Google — {{in}} in, {{out}} out', { in: r.pulled || 0, out: r.pushed || 0 }))
-    } catch (e) {
-      if (!silent) pushToast(e.message || 'Google sync failed', 'error')
-    } finally {
-      syncBusy.current = false
-      setSyncingGoogle(false)
-    }
-  }
-  const handleGoogleSync = useCallback(() => runSyncRef.current({ silent: false }), [])
-
-  // Auto ("paso") sync: once when Google becomes available, then on an interval.
-  useEffect(() => {
-    if (!googleAvailable) return undefined
-    runSyncRef.current({ silent: true })
-    const id = setInterval(() => runSyncRef.current({ silent: true }), 60000)
-    return () => clearInterval(id)
-  }, [googleAvailable])
+  }, [accountId, completed.length, view, refreshAll, syncSoon, pushToast, t])
 
   // ── List management ──
   const submitCreateList = useCallback(async (name) => {
@@ -291,19 +294,20 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
     try {
       const l = await createTaskList(accountId, { name: trimmed, color })
       await reloadLists()
+      syncSoon()
       setView({ kind: 'list', listId: l.listId })
     } catch (e) {
       pushToast(e.message || 'Could not create list', 'error')
     }
-  }, [accountId, lists, reloadLists, pushToast])
+  }, [accountId, lists, reloadLists, syncSoon, pushToast])
 
   const submitRenameList = useCallback(async (listId, name) => {
     const trimmed = (name || '').trim()
     setRenamingId(null)
     if (!trimmed) return
-    try { await updateTaskList(accountId, listId, { name: trimmed }); await reloadLists() }
+    try { await updateTaskList(accountId, listId, { name: trimmed }); await reloadLists(); syncSoon() }
     catch (e) { pushToast(e.message || 'Could not rename list', 'error') }
-  }, [accountId, reloadLists, pushToast])
+  }, [accountId, reloadLists, syncSoon, pushToast])
 
   const recolorList = useCallback(async (list, color) => {
     setLists((prev) => prev.map((l) => (l.listId === list.listId ? { ...l, color } : l)))
@@ -317,11 +321,12 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
       await deleteTaskList(accountId, list.listId)
       if (view.kind === 'list' && view.listId === list.listId) setView({ kind: 'all', listId: null })
       await refreshAll()
+      syncSoon()
       pushToast(t('List deleted'))
     } catch (e) {
       pushToast(e.message || 'Could not delete list', 'error')
     }
-  }, [accountId, view, refreshAll, pushToast, t])
+  }, [accountId, view, refreshAll, syncSoon, pushToast, t])
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { setDraft(null); setDraftId(null) } }
@@ -356,12 +361,6 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
         <ul>
           <li><button className="db-submenu-main-btn" onClick={openNew}>{btn(icon('plus'), t('New task'))}</button></li>
           <li><button className="db-submenu-main-btn" onClick={() => setCreatingList(true)}>{btn(icon('label'), t('New list'))}</button></li>
-          <li className="td-toolbar-sep" aria-hidden="true" />
-          <li><button className="db-submenu-main-btn" onClick={refreshAll}>{btn(icon('reload'), t('Refresh'))}</button></li>
-          {googleAvailable && <li className="td-toolbar-sep" aria-hidden="true" />}
-          {googleAvailable && (
-            <li><button className="db-submenu-main-btn" onClick={handleGoogleSync} disabled={syncingGoogle}>{btn(icon('online'), syncingGoogle ? t('Syncing…') : t('Sync with Google'))}</button></li>
-          )}
         </ul>
       </div>
 
@@ -415,22 +414,13 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
         <section className="td-main">
           <div className="td-main-head">
             <h2 className="td-main-title">{headerTitle}{loading && <span className="td-loading">•••</span>}</h2>
-            <div className="td-main-tools">
-              <input className="td-search" type="search" placeholder={t('Search tasks')} value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="td-quickadd">
-            <span className="td-quickadd-plus">＋</span>
-            <input className="td-quickadd-input" placeholder={t('Add a task and press Enter')} value={quickTitle}
-              onChange={(e) => setQuickTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') quickAdd() }} />
           </div>
 
           <div className="td-scroll">
             {!loading && active.length === 0 && completed.length === 0 && (
               <div className="td-empty">
                 <div className="td-empty-icon">✅</div>
-                <p>{search ? t('No matching tasks.') : t('Nothing here yet. Add your first task above.')}</p>
+                <p>{search ? t('No matching tasks.') : t('Nothing here yet. Use “New task” to add one.')}</p>
               </div>
             )}
 
@@ -554,6 +544,16 @@ function TaskEditor({ t, draft, setDraft, saving, isNew, lists, onCancel, onSave
         <div className="td-editor-body">
           <input className="td-input td-title-input" placeholder={t('Task title')} value={draft.title} autoFocus onChange={(e) => set({ title: e.target.value })} />
 
+          <button
+            type="button"
+            className={`td-important-toggle ${draft.starred ? 'on' : ''}`}
+            onClick={() => set({ starred: !draft.starred })}
+            aria-pressed={draft.starred}
+          >
+            <span className="td-important-star">{draft.starred ? '★' : '☆'}</span>
+            <span className="td-important-label">{draft.starred ? t('Marked as important') : t('Mark as important')}</span>
+          </button>
+
           <div className="td-form-row2">
             <label className="td-labeled">
               <span>{t('List')}</span>
@@ -577,12 +577,12 @@ function TaskEditor({ t, draft, setDraft, saving, isNew, lists, onCancel, onSave
                 {draft.hasDueTime && <input className="td-input" type="time" value={time} onChange={(e) => setTime(e.target.value)} />}
               </div>
             </label>
-            <div className="td-labeled td-due-toggles">
-              <span>&nbsp;</span>
-              <div>
-                <label className="td-check"><input type="checkbox" checked={draft.hasDueTime} onChange={(e) => toggleTime(e.target.checked)} /><span>{t('Set time')}</span></label>
-                <label className="td-check"><input type="checkbox" checked={draft.starred} onChange={(e) => set({ starred: e.target.checked })} /><span>{t('Important')}</span></label>
-              </div>
+            <div className="td-labeled">
+              <span>{t('Time')}</span>
+              <label className="td-inline-check">
+                <input type="checkbox" checked={draft.hasDueTime} onChange={(e) => toggleTime(e.target.checked)} />
+                <span>{t('Set a time')}</span>
+              </label>
             </div>
           </div>
 
