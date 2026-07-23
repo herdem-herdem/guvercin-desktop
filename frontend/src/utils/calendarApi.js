@@ -199,6 +199,75 @@ export async function googleSyncCalendar(accountId) {
   return jsonOrThrow(res)
 }
 
+// Whether the stored Google token actually grants Calendar access (does a real
+// probe). Returns { gmail, configured, granted }. Old mail-only accounts report
+// gmail:true, granted:false until the user reconnects.
+export async function googleCalendarAccess(accountId) {
+  try {
+    const res = await fetch(apiUrl(`/api/google/${accountId}/calendar-access`))
+    if (!res.ok) return { gmail: false, configured: false, granted: false }
+    return res.json()
+  } catch {
+    return { gmail: false, configured: false, granted: false }
+  }
+}
+
+// Run the full Google consent loopback and, on success, upgrade THIS account's
+// scopes (calendar/contacts/tasks) without touching its mail/offline settings.
+// `onProgress(text)` is called with human-readable status while the browser
+// consent is pending. Resolves once the account can sync; throws on failure.
+export async function googleReconnect(accountId, onProgress) {
+  const beginRes = await fetch(apiUrl('/api/oauth/google/begin'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  const begin = await beginRes.json().catch(() => ({}))
+  if (!beginRes.ok || !begin.flow_id) {
+    throw new Error(begin.message || 'Google sign-in is not available.')
+  }
+  if (onProgress) onProgress('pending')
+
+  const deadline = Date.now() + 5 * 60 * 1000
+  while (Date.now() <= deadline) {
+    await new Promise((r) => setTimeout(r, 1500))
+    const statusRes = await fetch(apiUrl(`/api/oauth/google/status/${encodeURIComponent(begin.flow_id)}`))
+    const status = await statusRes.json().catch(() => ({}))
+    if (status.status === 'pending') continue
+    if (status.status === 'ready') {
+      const finRes = await fetch(apiUrl('/api/oauth/google/reconnect'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flow_id: begin.flow_id, account_id: accountId }),
+      })
+      return jsonOrThrow(finRes)
+    }
+    throw new Error(status.message || 'Google sign-in failed.')
+  }
+  throw new Error('Google sign-in timed out.')
+}
+
+// ── Calendar backend preference ──
+// Which sync backend the account uses: '', 'google', 'caldav' or 'local'.
+export async function getCalendarBackend(accountId) {
+  try {
+    const res = await fetch(apiUrl(`/api/calendar/${accountId}/backend`))
+    if (!res.ok) return { backend: '' }
+    return res.json()
+  } catch {
+    return { backend: '' }
+  }
+}
+
+export async function setCalendarBackend(accountId, backend) {
+  const res = await fetch(apiUrl(`/api/calendar/${accountId}/backend`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ backend }),
+  })
+  return jsonOrThrow(res)
+}
+
 // ── CalDAV ──
 
 // Whether the account has a working CalDAV connection configured.

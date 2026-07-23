@@ -186,6 +186,41 @@ pub async fn google_status(
     })))
 }
 
+/// Probe whether the stored Google token actually grants Calendar access.
+///
+/// `google_status` only reports whether the account is Gmail and OAuth is built
+/// in; it can't tell whether the *calendar* scope was granted. Accounts that
+/// signed in before the calendar scope was added keep a mail-only refresh token,
+/// so a real API call is the only reliable signal. This does one cheap
+/// `calendarList` request (a 401/403 ⇒ not granted). Used by the Calendar tab to
+/// decide whether to prompt the user to reconnect.
+pub async fn calendar_access(
+    State(state): State<Arc<AppState>>,
+    Path(account_id): Path<i64>,
+) -> Result<Json<Value>, AppError> {
+    let general = state.ensure_ready(false).await?.general_pool.clone();
+    let provider: Option<String> =
+        sqlx::query_scalar("SELECT provider_type FROM accounts WHERE account_id = ?")
+            .bind(account_id)
+            .fetch_optional(&general)
+            .await?;
+    let is_gmail = provider.as_deref() == Some(oauth::PROVIDER_GMAIL);
+    let configured = oauth::is_configured();
+    if !is_gmail || !configured {
+        return Ok(Json(json!({ "gmail": is_gmail, "configured": configured, "granted": false })));
+    }
+    // Best-effort: any failure (no token, revoked scope, transient) ⇒ not granted.
+    let granted = match oauth::access_token_for_account(&general, account_id).await {
+        Ok(token) => {
+            let http = reqwest::Client::new();
+            let url = format!("{CAL_LIST_URL}?maxResults=1&fields=kind");
+            google_get::<Value>(&http, &url, &token).await.is_ok()
+        }
+        Err(_) => false,
+    };
+    Ok(Json(json!({ "gmail": true, "configured": true, "granted": granted })))
+}
+
 // ─────────────────────────── Calendar ───────────────────────────
 
 #[derive(Deserialize, Default)]

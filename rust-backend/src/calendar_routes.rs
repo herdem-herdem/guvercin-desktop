@@ -892,6 +892,61 @@ pub async fn sync_write_event(
     }
 }
 
+// ─────────────────────────── Backend preference ───────────────────────────
+//
+// Which sync backend the account uses for the calendar. Stored on the account row
+// (general DB) rather than the per-user calendar DB so the choice survives even
+// when no events exist yet, and so the Calendar tab can decide on first open
+// whether to prompt. One of "", "google", "caldav", "local".
+
+fn normalize_backend(raw: &str) -> String {
+    match raw.trim().to_lowercase().as_str() {
+        "google" => "google",
+        "caldav" => "caldav",
+        "local" => "local",
+        _ => "",
+    }
+    .to_string()
+}
+
+pub async fn get_calendar_backend(
+    State(state): State<Arc<AppState>>,
+    Path(account_id): Path<i64>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let general = state.ensure_ready(false).await?.general_pool.clone();
+    let backend: String = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT calendar_backend FROM accounts WHERE account_id = ?",
+    )
+    .bind(account_id)
+    .fetch_optional(&general)
+    .await?
+    .flatten()
+    .map(|s| normalize_backend(&s))
+    .unwrap_or_default();
+    Ok(Json(json!({ "backend": backend })))
+}
+
+#[derive(Deserialize)]
+pub struct BackendBody {
+    #[serde(default)]
+    pub backend: String,
+}
+
+pub async fn set_calendar_backend(
+    State(state): State<Arc<AppState>>,
+    Path(account_id): Path<i64>,
+    Json(body): Json<BackendBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let general = state.ensure_ready(false).await?.general_pool.clone();
+    let backend = normalize_backend(&body.backend);
+    sqlx::query("UPDATE accounts SET calendar_backend = ? WHERE account_id = ?")
+        .bind(&backend)
+        .bind(account_id)
+        .execute(&general)
+        .await?;
+    Ok(Json(json!({ "backend": backend })))
+}
+
 // ─────────────────────────── Calendar handlers ───────────────────────────
 
 pub async fn get_calendars(

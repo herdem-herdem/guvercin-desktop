@@ -103,6 +103,10 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
             post(oauth_routes::google_finalize),
         )
         .route(
+            "/api/oauth/google/reconnect",
+            post(oauth_routes::google_reconnect),
+        )
+        .route(
             "/api/account/:account_id/theme",
             post(routes::set_account_theme),
         )
@@ -194,6 +198,11 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
             get(calendar_routes::export_events),
         )
         .route(
+            "/api/calendar/:account_id/backend",
+            get(calendar_routes::get_calendar_backend)
+                .put(calendar_routes::set_calendar_backend),
+        )
+        .route(
             "/api/calendar/:account_id/google-sync",
             post(google_sync::sync_calendar),
         )
@@ -242,6 +251,10 @@ pub async fn run(db_dir: Option<PathBuf>) -> Result<u16, crate::error::AppError>
         .route(
             "/api/google/:account_id/status",
             get(google_sync::google_status),
+        )
+        .route(
+            "/api/google/:account_id/calendar-access",
+            get(google_sync::calendar_access),
         )
         .route("/api/avatar/:account_id", get(avatar_routes::get_avatar))
         .route(

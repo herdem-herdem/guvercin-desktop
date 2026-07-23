@@ -578,6 +578,14 @@ async fn init_general_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         let _ = sqlx::query(col).execute(pool).await;
     }
 
+    // Which calendar backend the user chose for this account (see calendar_routes
+    // `get/set_calendar_backend`). One of '', 'google', 'caldav', 'local'. Empty
+    // ⇒ not yet chosen: the Calendar tab prompts on first open. 'local' opts out of
+    // all cloud sync. The choice is single-select — only the named backend syncs.
+    let _ = sqlx::query("ALTER TABLE accounts ADD COLUMN calendar_backend TEXT")
+        .execute(pool)
+        .await;
+
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS avatar_cache (

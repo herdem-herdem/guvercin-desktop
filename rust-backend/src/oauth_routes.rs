@@ -282,6 +282,104 @@ pub async fn google_finalize(
         .into_response()
 }
 
+#[derive(Deserialize)]
+pub struct GoogleReconnectBody {
+    pub flow_id: String,
+    pub account_id: i64,
+}
+
+/// POST /api/oauth/google/reconnect — upgrade an existing Gmail account's scopes.
+///
+/// Unlike `google_finalize`, this only swaps the stored refresh token for the
+/// freshly-consented one (which now carries Calendar/Contacts/Tasks scope) and
+/// refreshes the cached access token. It deliberately does NOT touch offline mail
+/// settings or re-run the initial mailbox sync, so granting calendar access from
+/// the Calendar tab never disturbs the user's mail configuration. The re-consented
+/// Google account must be the same address as the account being reconnected.
+pub async fn google_reconnect(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<GoogleReconnectBody>,
+) -> impl IntoResponse {
+    let Some(completed) = oauth::take_completed(&body.flow_id) else {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "status": "error",
+                "message": tr("Sign-in session expired. Please sign in with Google again."),
+            })),
+        )
+            .into_response();
+    };
+
+    let inner = match state.ensure_ready(false).await {
+        Ok(inner) => inner,
+        Err(e) => return e.into_response(),
+    };
+
+    let account_email: Option<String> =
+        match sqlx::query_scalar("SELECT email_address FROM accounts WHERE account_id = ?")
+            .bind(body.account_id)
+            .fetch_optional(&inner.general_pool)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "status": "error", "message": format!("Database error: {e}") })),
+                )
+                    .into_response()
+            }
+        };
+    let Some(account_email) = account_email else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "status": "error", "message": tr("Account not found.") })),
+        )
+            .into_response();
+    };
+
+    // Guard against reconnecting with a different Google identity, which would
+    // silently point one account's calendar at another mailbox.
+    if !account_email.trim().eq_ignore_ascii_case(completed.email.trim()) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "status": "error",
+                "message": tr("That is a different Google account. Sign in with the same address as this account."),
+            })),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = sqlx::query("UPDATE accounts SET auth_token = ? WHERE account_id = ?")
+        .bind(&completed.refresh_token)
+        .bind(body.account_id)
+        .execute(&inner.general_pool)
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "status": "error", "message": format!("Database error: {e}") })),
+        )
+            .into_response();
+    }
+
+    // Refresh the cached access token so the very next sync uses the new scopes.
+    oauth::invalidate_account_token(body.account_id);
+    oauth::seed_account_token(
+        body.account_id,
+        completed.access_token,
+        completed.access_expires_at,
+    );
+
+    (
+        StatusCode::OK,
+        Json(json!({ "status": "success", "granted": true })),
+    )
+        .into_response()
+}
+
 fn split_mailboxes(mailboxes: &[String]) -> (Vec<String>, Vec<String>) {
     let mut folders = Vec::new();
     let mut labels = Vec::new();

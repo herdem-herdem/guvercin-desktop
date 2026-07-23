@@ -440,6 +440,24 @@
 .cal-caldav-field > span { font-size: 12px; font-weight: 600; color: var(--c-text-2); }
 .cal-caldav .cal-editor-footer { display: flex; justify-content: flex-start; min-height: 20px; }
 
+/* Cloud-choice modal (sync onboarding + settings) */
+.cal-cloud { width: 440px; }
+.cal-cloud-opts { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.cal-cloud-opt {
+  display: flex; align-items: center; gap: 12px; text-align: left;
+  padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--c-border-2); background: var(--c-surface-2);
+  cursor: pointer; transition: border-color 0.12s, background 0.12s;
+}
+.cal-cloud-opt:hover:not(:disabled) { border-color: var(--c-accent, #246bce); background: var(--c-surface-1); }
+.cal-cloud-opt:disabled { opacity: 0.6; cursor: default; }
+.cal-cloud-opt.is-current { border-color: var(--c-accent, #246bce); box-shadow: 0 0 0 1px var(--c-accent, #246bce) inset; }
+.cal-cloud-opt-icon { display: flex; width: 26px; justify-content: center; flex-shrink: 0; }
+.cal-cloud-opt-icon img { display: block; }
+.cal-cloud-opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cal-cloud-opt-title { font-size: 14px; font-weight: 600; color: var(--c-text-1); }
+.cal-cloud-opt-desc { font-size: 12px; line-height: 1.4; color: var(--c-text-3); }
+
 .cal-weekday-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .cal-weekday {
   width: 34px; height: 34px; border-radius: 50%;

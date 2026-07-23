@@ -6,7 +6,7 @@ import {
   caldavGetConfig, caldavSetConfig, caldavStatus, caldavSyncCalendar,
   createCalendar, createEvent, deleteCalendar, deleteEvent, emptyEvent, exportIcs,
   fetchCalendars, fetchEvents, formatIsoLocalDate, formatIsoLocalDateTime, getEvent,
-  googleStatus, googleSyncCalendar,
+  getCalendarBackend, googleCalendarAccess, googleReconnect, googleSyncCalendar, setCalendarBackend,
   importIcs, naiveMsLocal, normalizeEvent, parseIsoLocal, updateCalendar, updateEvent,
 } from '../utils/calendarApi.js'
 import './CalendarSection.css'
@@ -65,9 +65,15 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   const [toasts, setToasts] = useState([])
   const [creatingCal, setCreatingCal] = useState(false)
   const [renamingCal, setRenamingCal] = useState(null)
-  const [googleAvailable, setGoogleAvailable] = useState(false)
+  // Calendar sync backend: '', 'google', 'caldav' or 'local' (single-choice).
+  const [backend, setBackend] = useState('')
+  const [googleGmail, setGoogleGmail] = useState(false) // account is a Google account
+  const [googleGranted, setGoogleGranted] = useState(false) // token actually grants Calendar
   const [caldavAvailable, setCaldavAvailable] = useState(false)
   const [caldavOpen, setCaldavOpen] = useState(false)
+  const [cloudOpen, setCloudOpen] = useState(false) // cloud-choice modal (onboarding + settings)
+  const [reconnecting, setReconnecting] = useState(false)
+  const onboardDecidedRef = useRef(false)
   const fileInputRef = useRef(null)
   const firedReminders = useRef(new Set())
   const reminderTimers = useRef([])
@@ -149,11 +155,41 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
     return () => clearTimeout(id)
   }, [reloadEvents, search])
 
+  // Load the sync backend choice + backend availability for this account, then
+  // decide on first open: adopt an already-working backend silently, or prompt
+  // the user to choose (cloud via Google / cloud via CalDAV / local only). The
+  // choice persists on the account and is changeable later from the toolbar.
   useEffect(() => {
-    if (!accountId) { setGoogleAvailable(false); setCaldavAvailable(false); return }
+    if (!accountId) {
+      setBackend(''); setGoogleGmail(false); setGoogleGranted(false); setCaldavAvailable(false)
+      return
+    }
     let alive = true
-    googleStatus(accountId).then((s) => { if (alive) setGoogleAvailable(!!s.available) }).catch(() => {})
-    caldavStatus(accountId).then((s) => { if (alive) setCaldavAvailable(!!s.available) }).catch(() => {})
+    onboardDecidedRef.current = false
+    ;(async () => {
+      const [pref, access, caldav] = await Promise.all([
+        getCalendarBackend(accountId).catch(() => ({ backend: '' })),
+        googleCalendarAccess(accountId).catch(() => ({ gmail: false, granted: false })),
+        caldavStatus(accountId).catch(() => ({ available: false })),
+      ])
+      if (!alive) return
+      const chosen = pref.backend || ''
+      setGoogleGmail(!!access.gmail)
+      setGoogleGranted(!!access.granted)
+      setCaldavAvailable(!!caldav.available)
+      setBackend(chosen)
+
+      if (chosen) return // already decided — respect it
+      // Unset: adopt whatever already works, else ask the user.
+      if (access.granted) {
+        setCalendarBackend(accountId, 'google').catch(() => {}); setBackend('google')
+      } else if (caldav.available) {
+        setCalendarBackend(accountId, 'caldav').catch(() => {}); setBackend('caldav')
+      } else if (!onboardDecidedRef.current) {
+        onboardDecidedRef.current = true
+        setCloudOpen(true)
+      }
+    })()
     return () => { alive = false }
   }, [accountId])
 
@@ -387,21 +423,50 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   }, [accountId, pushToast])
 
   // Two-way sync. Reassigned every render so the auto-sync timer always calls the
-  // latest closure; a ref guard prevents overlapping runs. Google and CalDAV both
-  // run quietly in the background — no button, no toast — whenever configured.
-  const syncEnabled = googleAvailable || caldavAvailable
+  // latest closure; a ref guard prevents overlapping runs. Only the single chosen
+  // backend syncs; 'local' (or an unmade choice) syncs nothing. Runs quietly in
+  // the background — no button, no toast.
+  const syncEnabled = (backend === 'google' && googleGranted) || (backend === 'caldav' && caldavAvailable)
   const runSyncRef = useRef(async () => {})
   runSyncRef.current = async () => {
     if (!syncEnabled || syncBusy.current) return
     syncBusy.current = true
     try {
-      if (googleAvailable) await googleSyncCalendar(accountId)
-      if (caldavAvailable) await caldavSyncCalendar(accountId)
+      if (backend === 'google' && googleGranted) await googleSyncCalendar(accountId)
+      else if (backend === 'caldav' && caldavAvailable) await caldavSyncCalendar(accountId)
       await refreshAll({ silent: true })
     } catch { /* transient network / auth issues are non-fatal */ } finally {
       syncBusy.current = false
     }
   }
+
+  // ── Cloud-choice handlers (shared by onboarding + settings) ──
+  const chooseGoogle = useCallback(async () => {
+    if (reconnecting) return
+    setReconnecting(true)
+    try {
+      await googleReconnect(accountId, (p) => {
+        if (p === 'pending') pushToast(t('Complete sign-in in your browser, then return here…'), 'info')
+      })
+      await setCalendarBackend(accountId, 'google').catch(() => {})
+      setBackend('google'); setGoogleGranted(true); setGoogleGmail(true)
+      setCloudOpen(false)
+      pushToast(t('Connected to Google Calendar.'), 'info')
+      setTimeout(() => runSyncRef.current(), 100)
+    } catch (e) {
+      pushToast(e.message || t('Google sign-in failed. Please try again.'), 'error')
+    } finally {
+      setReconnecting(false)
+    }
+  }, [accountId, reconnecting, pushToast, t])
+
+  const chooseCaldav = useCallback(() => { setCloudOpen(false); setCaldavOpen(true) }, [])
+
+  const chooseLocal = useCallback(async () => {
+    await setCalendarBackend(accountId, 'local').catch(() => {})
+    setBackend('local'); setCloudOpen(false)
+    pushToast(t('Calendar will stay on this device only.'), 'info')
+  }, [accountId, pushToast, t])
 
   // Sync on every change (debounced so a burst of edits coalesces into one push).
   syncSoonRef.current = () => {
@@ -529,8 +594,8 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
           <li><button className="db-submenu-main-btn" onClick={handleExport}>{btn(icon('save'), t('Export'))}</button></li>
           <li className="cal-toolbar-sep" aria-hidden="true" />
           <li>
-            <button className="db-submenu-main-btn" onClick={() => setCaldavOpen(true)} title={t('CalDAV account')}>
-              {btn(icon('settings'), caldavAvailable ? t('CalDAV ✓') : t('CalDAV'))}
+            <button className="db-submenu-main-btn" onClick={() => setCloudOpen(true)} title={t('Calendar sync')}>
+              {btn(icon('settings'), syncLabel(t, backend))}
             </button>
           </li>
         </ul>
@@ -624,10 +689,27 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
           onDelete={draftMode === 'edit' && selected ? () => handleDelete(selected) : null} />
       )}
 
+      {/* ── Cloud-choice modal (first-run onboarding + settings) ── */}
+      {cloudOpen && (
+        <CloudChoiceModal t={t} backend={backend} googleGmail={googleGmail} reconnecting={reconnecting}
+          onGoogle={chooseGoogle} onCaldav={chooseCaldav} onLocal={chooseLocal}
+          onClose={() => setCloudOpen(false)} />
+      )}
+
       {/* ── CalDAV account modal ── */}
       {caldavOpen && (
         <CalDavSettings t={t} accountId={accountId} onClose={() => setCaldavOpen(false)}
-          onChanged={(available) => { setCaldavAvailable(available); if (available) runSyncRef.current() }}
+          onChanged={async (available) => {
+            setCaldavAvailable(available)
+            if (available) {
+              await setCalendarBackend(accountId, 'caldav').catch(() => {})
+              setBackend('caldav')
+              setTimeout(() => runSyncRef.current(), 100)
+            } else if (backend === 'caldav') {
+              await setCalendarBackend(accountId, '').catch(() => {})
+              setBackend('')
+            }
+          }}
           pushToast={pushToast} />
       )}
 
@@ -638,6 +720,74 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
             <button className="cal-toast-close" onClick={() => dismissToast(toast.id)} title={t('Dismiss')}>✕</button>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────── Cloud sync choice ───────────────────────────
+
+// Short toolbar label for the current backend.
+function syncLabel(t, backend) {
+  if (backend === 'google') return t('Sync: Google')
+  if (backend === 'caldav') return t('Sync: CalDAV')
+  if (backend === 'local') return t('Local only')
+  return t('Set up sync')
+}
+
+// First-run onboarding + settings for the calendar sync backend. Single choice:
+// Google, another CalDAV server, or local-only. The current choice is marked so
+// the same modal doubles as the settings screen.
+function CloudChoiceModal({ t, backend, googleGmail, reconnecting, onGoogle, onCaldav, onLocal, onClose }) {
+  const opt = (key, iconEl, title, desc, onClick, disabled = false) => (
+    <button className={`cal-cloud-opt${backend === key ? ' is-current' : ''}`}
+      onClick={onClick} disabled={disabled}>
+      <span className="cal-cloud-opt-icon">{iconEl}</span>
+      <span className="cal-cloud-opt-text">
+        <span className="cal-cloud-opt-title">{title}{backend === key ? ` ✓` : ''}</span>
+        <span className="cal-cloud-opt-desc">{desc}</span>
+      </span>
+    </button>
+  )
+
+  return (
+    <div className="cal-modal-overlay" onClick={onClose}>
+      <div className="cal-editor cal-cloud" onClick={(e) => e.stopPropagation()}>
+        <div className="cal-editor-topbar">
+          <div className="cal-editor-title">{t('Calendar sync')}</div>
+          <div className="cal-editor-actions">
+            <button className="cal-btn" onClick={onClose}>{t('Close')}</button>
+          </div>
+        </div>
+        <div className="cal-editor-body">
+          <p className="cal-caldav-hint">
+            {t('Choose where your calendar lives. You can change this anytime.')}
+          </p>
+          <div className="cal-cloud-opts">
+            {googleGmail && opt(
+              'google',
+              <img src="/icon-google.png" alt="" width="22" height="22" />,
+              reconnecting ? t('Waiting for Google…') : t('Google Calendar'),
+              t('Two-way sync with your Google account.'),
+              onGoogle,
+              reconnecting,
+            )}
+            {opt(
+              'caldav',
+              icon('settings'),
+              t('Another server (CalDAV)'),
+              t('iCloud, Nextcloud, Fastmail, mailbox.org, Radicale…'),
+              onCaldav,
+            )}
+            {opt(
+              'local',
+              icon('offline'),
+              t('This device only'),
+              t('No cloud. Events stay local to this app.'),
+              onLocal,
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
