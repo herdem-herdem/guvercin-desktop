@@ -20,6 +20,7 @@ mod offline_routes;
 mod routes;
 mod security_routes;
 pub mod smtp_send;
+mod sync_reconcile;
 mod todo_routes;
 
 use axum::{

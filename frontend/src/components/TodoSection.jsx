@@ -66,6 +66,7 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
   const [googleAvailable, setGoogleAvailable] = useState(false)
   const [syncingGoogle, setSyncingGoogle] = useState(false)
   const [toasts, setToasts] = useState([])
+  const syncBusy = useRef(false)
 
   const pushToast = useCallback((text, type = 'info') => {
     const id = `${Date.now()}-${Math.random()}`
@@ -254,18 +255,31 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
     }
   }, [accountId, completed.length, view, refreshAll, pushToast, t])
 
-  const handleGoogleSync = useCallback(async () => {
+  const runSyncRef = useRef(async () => {})
+  runSyncRef.current = async ({ silent = false } = {}) => {
+    if (!googleAvailable || syncBusy.current) return
+    syncBusy.current = true
     setSyncingGoogle(true)
     try {
       const r = await googleSyncTasks(accountId)
       await refreshAll()
-      pushToast(t('Synced {{n}} tasks from Google', { n: r.tasks || 0 }))
+      if (!silent) pushToast(t('Synced with Google — {{in}} in, {{out}} out', { in: r.pulled || 0, out: r.pushed || 0 }))
     } catch (e) {
-      pushToast(e.message || 'Google sync failed', 'error')
+      if (!silent) pushToast(e.message || 'Google sync failed', 'error')
     } finally {
+      syncBusy.current = false
       setSyncingGoogle(false)
     }
-  }, [accountId, refreshAll, pushToast, t])
+  }
+  const handleGoogleSync = useCallback(() => runSyncRef.current({ silent: false }), [])
+
+  // Auto ("paso") sync: once when Google becomes available, then on an interval.
+  useEffect(() => {
+    if (!googleAvailable) return undefined
+    runSyncRef.current({ silent: true })
+    const id = setInterval(() => runSyncRef.current({ silent: true }), 60000)
+    return () => clearInterval(id)
+  }, [googleAvailable])
 
   // ── List management ──
   const submitCreateList = useCallback(async (name) => {

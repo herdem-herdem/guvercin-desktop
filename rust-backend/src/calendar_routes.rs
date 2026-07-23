@@ -452,6 +452,8 @@ async fn upsert_event(
     let recurs = card.recurrence.is_active();
     let until_ms = recur_until_ms(card);
     let event_json = serde_json::to_string(card).unwrap_or_else(|_| "{}".to_string());
+    // Local edits mark the row dirty so two-way sync pushes it to Google.
+    let now_ms = chrono::Utc::now().timestamp_millis();
 
     if let Some(id) = id {
         sqlx::query(
@@ -459,7 +461,7 @@ async fn upsert_event(
             UPDATE events SET
                 calendar_id = ?, uid = ?, title = ?, location = ?, all_day = ?,
                 start_ms = ?, end_ms = ?, recurs = ?, recur_until_ms = ?,
-                event_json = ?, updated_at = CURRENT_TIMESTAMP
+                event_json = ?, dirty = 1, local_updated_ms = ?, updated_at = CURRENT_TIMESTAMP
             WHERE event_id = ?
             "#,
         )
@@ -473,6 +475,7 @@ async fn upsert_event(
         .bind(recurs as i64)
         .bind(until_ms)
         .bind(&event_json)
+        .bind(now_ms)
         .bind(id)
         .execute(pool)
         .await?;
@@ -482,8 +485,9 @@ async fn upsert_event(
             r#"
             INSERT INTO events
                 (calendar_id, uid, title, location, all_day, start_ms, end_ms,
-                 recurs, recur_until_ms, event_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                 recurs, recur_until_ms, event_json, dirty, deleted, local_updated_ms,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             "#,
         )
         .bind(card.calendar_id)
@@ -496,6 +500,7 @@ async fn upsert_event(
         .bind(recurs as i64)
         .bind(until_ms)
         .bind(&event_json)
+        .bind(now_ms)
         .execute(pool)
         .await?;
         Ok(res.last_insert_rowid())
@@ -504,7 +509,7 @@ async fn upsert_event(
 
 async fn fetch_card(pool: &SqlitePool, id: i64) -> Result<Option<(i64, EventCard)>, AppError> {
     let row = sqlx::query(&format!(
-        "SELECT {SELECT_COLS} FROM events WHERE event_id = ?"
+        "SELECT {SELECT_COLS} FROM events WHERE event_id = ? AND deleted = 0"
     ))
     .bind(id)
     .fetch_optional(pool)
@@ -595,7 +600,7 @@ pub async fn list_events(
     let cal_ids = parse_id_csv(&q.calendars);
     let search = q.search.as_deref().map(str::trim).unwrap_or("").to_lowercase();
 
-    let mut sql = format!("SELECT {SELECT_COLS} FROM events WHERE ");
+    let mut sql = format!("SELECT {SELECT_COLS} FROM events WHERE deleted = 0 AND ");
     // Overlap for one-off events, or a live recurrence that could reach the window.
     sql.push_str(
         "((recurs = 0 AND start_ms < ? AND end_ms > ?) \
@@ -764,11 +769,127 @@ pub async fn delete_event(
     Path((account_id, event_id)): Path<(i64, i64)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let pool = db::get_user_db_pool(&state, account_id).await?;
-    sqlx::query("DELETE FROM events WHERE event_id = ?")
-        .bind(event_id)
-        .execute(&pool)
-        .await?;
+    soft_or_hard_delete(&pool, "events", "event_id", event_id).await?;
     Ok(Json(json!({ "status": "success" })))
+}
+
+/// Tombstone a row if it is linked to a remote (Google) item so the deletion can
+/// be pushed; otherwise remove it outright. Shared shape across the syncable
+/// stores.
+pub async fn soft_or_hard_delete(
+    pool: &SqlitePool,
+    table: &str,
+    id_col: &str,
+    id: i64,
+) -> Result<(), AppError> {
+    let remote_id: Option<String> =
+        sqlx::query_scalar(&format!("SELECT remote_id FROM {table} WHERE {id_col} = ?"))
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
+    if remote_id.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        sqlx::query(&format!(
+            "UPDATE {table} SET deleted = 1, dirty = 1, local_updated_ms = ? WHERE {id_col} = ?"
+        ))
+        .bind(now_ms)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    } else {
+        sqlx::query(&format!("DELETE FROM {table} WHERE {id_col} = ?"))
+            .bind(id)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Hard-remove a row (used by sync for confirmed remote deletions / drops).
+pub async fn sync_hard_delete(
+    pool: &SqlitePool,
+    table: &str,
+    id_col: &str,
+    id: i64,
+) -> Result<(), AppError> {
+    sqlx::query(&format!("DELETE FROM {table} WHERE {id_col} = ?"))
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// After pushing a local row to Google, record its remote identity and clear the
+/// dirty flag so it isn't pushed again.
+pub async fn sync_mark_pushed(
+    pool: &SqlitePool,
+    table: &str,
+    id_col: &str,
+    id: i64,
+    remote_id: &str,
+    etag: Option<&str>,
+    remote_ms: i64,
+) -> Result<(), AppError> {
+    sqlx::query(&format!(
+        "UPDATE {table} SET remote_id = ?, etag = ?, remote_updated_ms = ?, local_updated_ms = ?, dirty = 0 WHERE {id_col} = ?"
+    ))
+    .bind(remote_id)
+    .bind(etag)
+    .bind(remote_ms)
+    .bind(remote_ms)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Insert or overwrite an event from an authoritative remote (Google) copy. The
+/// row is written clean (dirty = 0, deleted = 0) with its remote identity.
+pub async fn sync_write_event(
+    pool: &SqlitePool,
+    id: Option<i64>,
+    card: &EventCard,
+    remote_id: &str,
+    etag: Option<&str>,
+    remote_ms: i64,
+) -> Result<i64, AppError> {
+    let (start_ms, end_ms) = compute_bounds(card);
+    let recurs = card.recurrence.is_active();
+    let until_ms = recur_until_ms(card);
+    let event_json = serde_json::to_string(card).unwrap_or_else(|_| "{}".to_string());
+    if let Some(id) = id {
+        sqlx::query(
+            r#"
+            UPDATE events SET
+                calendar_id = ?, uid = ?, title = ?, location = ?, all_day = ?,
+                start_ms = ?, end_ms = ?, recurs = ?, recur_until_ms = ?, event_json = ?,
+                remote_id = ?, etag = ?, remote_updated_ms = ?, local_updated_ms = ?,
+                dirty = 0, deleted = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE event_id = ?
+            "#,
+        )
+        .bind(card.calendar_id).bind(&card.uid).bind(&card.title).bind(&card.location)
+        .bind(card.all_day as i64).bind(start_ms).bind(end_ms).bind(recurs as i64).bind(until_ms)
+        .bind(&event_json).bind(remote_id).bind(etag).bind(remote_ms).bind(remote_ms).bind(id)
+        .execute(pool).await?;
+        Ok(id)
+    } else {
+        let res = sqlx::query(
+            r#"
+            INSERT INTO events
+                (calendar_id, uid, title, location, all_day, start_ms, end_ms, recurs,
+                 recur_until_ms, event_json, remote_id, etag, remote_updated_ms, local_updated_ms,
+                 dirty, deleted, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind(card.calendar_id).bind(&card.uid).bind(&card.title).bind(&card.location)
+        .bind(card.all_day as i64).bind(start_ms).bind(end_ms).bind(recurs as i64).bind(until_ms)
+        .bind(&event_json).bind(remote_id).bind(etag).bind(remote_ms).bind(remote_ms)
+        .execute(pool).await?;
+        Ok(res.last_insert_rowid())
+    }
 }
 
 // ─────────────────────────── Calendar handlers ───────────────────────────
@@ -984,7 +1105,7 @@ pub async fn export_events(
     let ids = parse_id_csv(&q.ids);
     let cal_ids = parse_id_csv(&q.calendars);
     let mut sql = format!("SELECT {SELECT_COLS} FROM events");
-    let mut clauses: Vec<String> = Vec::new();
+    let mut clauses: Vec<String> = vec!["deleted = 0".to_string()];
     if !ids.is_empty() {
         clauses.push(format!(
             "event_id IN ({})",
@@ -1082,7 +1203,7 @@ fn push_vevent(out: &mut String, card: &EventCard) {
     out.push_str("END:VEVENT\r\n");
 }
 
-fn build_rrule(card: &EventCard) -> Option<String> {
+pub fn build_rrule(card: &EventCard) -> Option<String> {
     let r = &card.recurrence;
     if !r.is_active() {
         return None;

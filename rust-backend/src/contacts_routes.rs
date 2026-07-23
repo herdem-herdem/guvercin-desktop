@@ -255,13 +255,17 @@ async fn upsert_card(pool: &SqlitePool, id: Option<i64>, card: &ContactCard) -> 
         .unwrap_or("")
         .to_string();
 
+    // Local edits mark the row dirty so two-way sync pushes it to Google.
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
     if let Some(id) = id {
         sqlx::query(
             r#"
             UPDATE contacts SET
                 name = ?, display_name = ?, mail_address = ?, phone_number_country_code = ?,
                 website = ?, uid = ?, first_name = ?, last_name = ?, company = ?, job_title = ?,
-                is_favorite = ?, categories = ?, card_json = ?, updated_at = CURRENT_TIMESTAMP
+                is_favorite = ?, categories = ?, card_json = ?, dirty = 1, local_updated_ms = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE contact_id = ?
             "#,
         )
@@ -278,6 +282,7 @@ async fn upsert_card(pool: &SqlitePool, id: Option<i64>, card: &ContactCard) -> 
         .bind(card.is_favorite as i64)
         .bind(&categories_json)
         .bind(&card_json)
+        .bind(now_ms)
         .bind(id)
         .execute(pool)
         .await?;
@@ -288,8 +293,8 @@ async fn upsert_card(pool: &SqlitePool, id: Option<i64>, card: &ContactCard) -> 
             INSERT INTO contacts
                 (name, display_name, mail_address, phone_number_country_code, website, uid,
                  first_name, last_name, company, job_title, is_favorite, categories, card_json,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                 dirty, deleted, local_updated_ms, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             "#,
         )
         .bind(&display_name)
@@ -305,6 +310,7 @@ async fn upsert_card(pool: &SqlitePool, id: Option<i64>, card: &ContactCard) -> 
         .bind(card.is_favorite as i64)
         .bind(&categories_json)
         .bind(&card_json)
+        .bind(now_ms)
         .execute(pool)
         .await?;
         Ok(res.last_insert_rowid())
@@ -313,12 +319,65 @@ async fn upsert_card(pool: &SqlitePool, id: Option<i64>, card: &ContactCard) -> 
 
 async fn fetch_record(pool: &SqlitePool, id: i64) -> Result<Option<ContactRecord>, AppError> {
     let row = sqlx::query(&format!(
-        "SELECT {SELECT_COLS} FROM contacts WHERE contact_id = ?"
+        "SELECT {SELECT_COLS} FROM contacts WHERE contact_id = ? AND deleted = 0"
     ))
     .bind(id)
     .fetch_optional(pool)
     .await?;
     Ok(row.map(|r| row_to_record(&r)))
+}
+
+/// Insert or overwrite a contact from an authoritative remote (Google) copy —
+/// clean (dirty = 0, deleted = 0) with its remote identity recorded.
+pub async fn sync_write_contact(
+    pool: &SqlitePool,
+    id: Option<i64>,
+    card: &ContactCard,
+    remote_id: &str,
+    etag: Option<&str>,
+    remote_ms: i64,
+) -> Result<i64, AppError> {
+    let card_json = serde_json::to_string(card).unwrap_or_else(|_| "{}".to_string());
+    let categories_json = serde_json::to_string(&card.categories).unwrap_or_else(|_| "[]".to_string());
+    let display_name = card.effective_display_name();
+    let primary_email = card.primary_email();
+    let primary_phone = card.phones.iter().map(|p| p.value.trim()).find(|v| !v.is_empty()).unwrap_or("").to_string();
+    let website = card.websites.iter().map(|w| w.value.trim()).find(|v| !v.is_empty()).unwrap_or("").to_string();
+    if let Some(id) = id {
+        sqlx::query(
+            r#"
+            UPDATE contacts SET
+                name = ?, display_name = ?, mail_address = ?, phone_number_country_code = ?,
+                website = ?, uid = ?, first_name = ?, last_name = ?, company = ?, job_title = ?,
+                is_favorite = ?, categories = ?, card_json = ?,
+                remote_id = ?, etag = ?, remote_updated_ms = ?, local_updated_ms = ?,
+                dirty = 0, deleted = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE contact_id = ?
+            "#,
+        )
+        .bind(&display_name).bind(&display_name).bind(&primary_email).bind(&primary_phone).bind(&website)
+        .bind(&card.uid).bind(&card.name.first).bind(&card.name.last).bind(&card.organization.company)
+        .bind(&card.organization.job_title).bind(card.is_favorite as i64).bind(&categories_json).bind(&card_json)
+        .bind(remote_id).bind(etag).bind(remote_ms).bind(remote_ms).bind(id)
+        .execute(pool).await?;
+        Ok(id)
+    } else {
+        let res = sqlx::query(
+            r#"
+            INSERT INTO contacts
+                (name, display_name, mail_address, phone_number_country_code, website, uid,
+                 first_name, last_name, company, job_title, is_favorite, categories, card_json,
+                 remote_id, etag, remote_updated_ms, local_updated_ms, dirty, deleted, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind(&display_name).bind(&display_name).bind(&primary_email).bind(&primary_phone).bind(&website)
+        .bind(&card.uid).bind(&card.name.first).bind(&card.name.last).bind(&card.organization.company)
+        .bind(&card.organization.job_title).bind(card.is_favorite as i64).bind(&categories_json).bind(&card_json)
+        .bind(remote_id).bind(etag).bind(remote_ms).bind(remote_ms)
+        .execute(pool).await?;
+        Ok(res.last_insert_rowid())
+    }
 }
 
 /// Upsert a contact keyed on its stored UID — used by external (Google) sync so
@@ -358,7 +417,7 @@ pub async fn list_contacts(
     let pool = db::get_user_db_pool(&state, account_id).await?;
 
     let mut sql = format!("SELECT {SELECT_COLS} FROM contacts");
-    let mut clauses: Vec<String> = Vec::new();
+    let mut clauses: Vec<String> = vec!["deleted = 0".to_string()];
     if q.favorites.unwrap_or(false) {
         clauses.push("is_favorite = 1".to_string());
     }
@@ -530,10 +589,7 @@ pub async fn delete_contact(
     Path((account_id, contact_id)): Path<(i64, i64)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let pool = db::get_user_db_pool(&state, account_id).await?;
-    sqlx::query("DELETE FROM contacts WHERE contact_id = ?")
-        .bind(contact_id)
-        .execute(&pool)
-        .await?;
+    crate::calendar_routes::soft_or_hard_delete(&pool, "contacts", "contact_id", contact_id).await?;
     Ok(Json(json!({ "status": "ok" })))
 }
 
@@ -657,7 +713,7 @@ pub async fn export_contacts(
         } else {
             let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
             let sql = format!(
-                "SELECT {SELECT_COLS} FROM contacts WHERE contact_id IN ({placeholders}) \
+                "SELECT {SELECT_COLS} FROM contacts WHERE deleted = 0 AND contact_id IN ({placeholders}) \
                  ORDER BY LOWER(COALESCE(display_name, mail_address, '')) ASC"
             );
             let mut query = sqlx::query(&sql);
@@ -668,7 +724,7 @@ pub async fn export_contacts(
         }
     } else {
         sqlx::query(&format!(
-            "SELECT {SELECT_COLS} FROM contacts ORDER BY LOWER(COALESCE(display_name, mail_address, '')) ASC"
+            "SELECT {SELECT_COLS} FROM contacts WHERE deleted = 0 ORDER BY LOWER(COALESCE(display_name, mail_address, '')) ASC"
         ))
         .fetch_all(&pool)
         .await?
@@ -770,11 +826,11 @@ pub async fn get_lists(
 ) -> Result<Json<ListsResponse>, AppError> {
     let pool = db::get_user_db_pool(&state, account_id).await?;
 
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contacts")
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contacts WHERE deleted = 0")
         .fetch_one(&pool)
         .await
         .unwrap_or(0);
-    let favorites: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contacts WHERE is_favorite = 1")
+    let favorites: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contacts WHERE is_favorite = 1 AND deleted = 0")
         .fetch_one(&pool)
         .await
         .unwrap_or(0);
@@ -1586,7 +1642,13 @@ mod tests {
                 categories    TEXT,
                 card_json     TEXT,
                 created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                remote_id     TEXT,
+                etag          TEXT,
+                dirty         INTEGER NOT NULL DEFAULT 0,
+                deleted       INTEGER NOT NULL DEFAULT 0,
+                remote_updated_ms INTEGER,
+                local_updated_ms  INTEGER
             )
             "#,
         )

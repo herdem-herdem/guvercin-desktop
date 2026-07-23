@@ -1157,5 +1157,35 @@ async fn init_user_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await;
 
+    // ── Two-way Google sync bookkeeping ──
+    // Added to every syncable store. `remote_id`/`etag` map a local row to its
+    // Google counterpart; `dirty` flags a local edit awaiting push; `deleted` is a
+    // tombstone so a local delete can be propagated before the row is dropped;
+    // `remote_updated_ms`/`local_updated_ms` drive last-write-wins conflict
+    // resolution. All are additive with safe defaults (ignored if already present).
+    for table in ["events", "tasks", "contacts"] {
+        for stmt in [
+            format!("ALTER TABLE {table} ADD COLUMN remote_id TEXT"),
+            format!("ALTER TABLE {table} ADD COLUMN etag TEXT"),
+            format!("ALTER TABLE {table} ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0"),
+            format!("ALTER TABLE {table} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0"),
+            format!("ALTER TABLE {table} ADD COLUMN remote_updated_ms INTEGER"),
+            format!("ALTER TABLE {table} ADD COLUMN local_updated_ms INTEGER"),
+        ] {
+            let _ = sqlx::query(&stmt).execute(pool).await;
+        }
+        let _ = sqlx::query(&format!(
+            "CREATE INDEX IF NOT EXISTS idx_{table}_remote ON {table}(remote_id)"
+        ))
+        .execute(pool)
+        .await;
+    }
+    // Calendars and task lists only need a remote-id mapping.
+    for table in ["calendars", "task_lists"] {
+        let _ = sqlx::query(&format!("ALTER TABLE {table} ADD COLUMN remote_id TEXT"))
+            .execute(pool)
+            .await;
+    }
+
     Ok(())
 }

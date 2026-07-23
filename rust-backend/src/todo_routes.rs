@@ -189,6 +189,8 @@ async fn upsert_task(pool: &SqlitePool, id: Option<i64>, card: &TaskCard) -> Res
     let due_ms = card.due_ms();
     let has_time = card.has_time() as i64;
     let priority = card.priority_int();
+    // Local edits mark the row dirty so two-way sync pushes it to Google.
+    let now_ms = chrono::Utc::now().timestamp_millis();
 
     if let Some(id) = id {
         sqlx::query(
@@ -198,7 +200,7 @@ async fn upsert_task(pool: &SqlitePool, id: Option<i64>, card: &TaskCard) -> Res
                 priority = ?, completed = ?, starred = ?, task_json = ?,
                 completed_at = CASE WHEN ? = 1 AND completed = 0 THEN CURRENT_TIMESTAMP
                                     WHEN ? = 0 THEN NULL ELSE completed_at END,
-                updated_at = CURRENT_TIMESTAMP
+                dirty = 1, local_updated_ms = ?, updated_at = CURRENT_TIMESTAMP
             WHERE task_id = ?
             "#,
         )
@@ -214,6 +216,7 @@ async fn upsert_task(pool: &SqlitePool, id: Option<i64>, card: &TaskCard) -> Res
         .bind(&task_json)
         .bind(card.completed as i64)
         .bind(card.completed as i64)
+        .bind(now_ms)
         .bind(id)
         .execute(pool)
         .await?;
@@ -223,9 +226,9 @@ async fn upsert_task(pool: &SqlitePool, id: Option<i64>, card: &TaskCard) -> Res
             r#"
             INSERT INTO tasks
                 (list_id, uid, title, notes, due_ms, has_due_time, priority, completed, starred,
-                 completed_at, position, task_json, created_at, updated_at)
+                 completed_at, position, task_json, dirty, deleted, local_updated_ms, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks), ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks), ?, 1, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             "#,
         )
         .bind(card.list_id)
@@ -239,6 +242,7 @@ async fn upsert_task(pool: &SqlitePool, id: Option<i64>, card: &TaskCard) -> Res
         .bind(card.starred as i64)
         .bind(if card.completed { Some(chrono::Utc::now().to_rfc3339()) } else { None })
         .bind(&task_json)
+        .bind(now_ms)
         .execute(pool)
         .await?;
         Ok(res.last_insert_rowid())
@@ -246,11 +250,64 @@ async fn upsert_task(pool: &SqlitePool, id: Option<i64>, card: &TaskCard) -> Res
 }
 
 async fn fetch_record(pool: &SqlitePool, id: i64) -> Result<Option<TaskRecord>, AppError> {
-    let row = sqlx::query(&format!("SELECT {SELECT_COLS} FROM tasks WHERE task_id = ?"))
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+    let row = sqlx::query(&format!(
+        "SELECT {SELECT_COLS} FROM tasks WHERE task_id = ? AND deleted = 0"
+    ))
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
     Ok(row.map(|r| row_to_record(&r)))
+}
+
+/// Insert or overwrite a task from an authoritative remote (Google) copy — clean
+/// (dirty = 0, deleted = 0) with its remote identity recorded.
+pub async fn sync_write_task(
+    pool: &SqlitePool,
+    id: Option<i64>,
+    card: &TaskCard,
+    remote_id: &str,
+    etag: Option<&str>,
+    remote_ms: i64,
+) -> Result<i64, AppError> {
+    let task_json = serde_json::to_string(card).unwrap_or_else(|_| "{}".to_string());
+    let due_ms = card.due_ms();
+    let has_time = card.has_time() as i64;
+    let priority = card.priority_int();
+    let completed_at = if card.completed { Some(chrono::Utc::now().to_rfc3339()) } else { None };
+    if let Some(id) = id {
+        sqlx::query(
+            r#"
+            UPDATE tasks SET
+                list_id = ?, uid = ?, title = ?, notes = ?, due_ms = ?, has_due_time = ?,
+                priority = ?, completed = ?, starred = ?, task_json = ?, completed_at = ?,
+                remote_id = ?, etag = ?, remote_updated_ms = ?, local_updated_ms = ?,
+                dirty = 0, deleted = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE task_id = ?
+            "#,
+        )
+        .bind(card.list_id).bind(&card.uid).bind(&card.title).bind(&card.notes).bind(due_ms)
+        .bind(has_time).bind(priority).bind(card.completed as i64).bind(card.starred as i64)
+        .bind(&task_json).bind(&completed_at).bind(remote_id).bind(etag).bind(remote_ms).bind(remote_ms).bind(id)
+        .execute(pool).await?;
+        Ok(id)
+    } else {
+        let res = sqlx::query(
+            r#"
+            INSERT INTO tasks
+                (list_id, uid, title, notes, due_ms, has_due_time, priority, completed, starred,
+                 completed_at, position, task_json, remote_id, etag, remote_updated_ms,
+                 local_updated_ms, dirty, deleted, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks), ?, ?, ?, ?, ?, 0, 0,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind(card.list_id).bind(&card.uid).bind(&card.title).bind(&card.notes).bind(due_ms)
+        .bind(has_time).bind(priority).bind(card.completed as i64).bind(card.starred as i64)
+        .bind(&completed_at).bind(&task_json).bind(remote_id).bind(etag).bind(remote_ms).bind(remote_ms)
+        .execute(pool).await?;
+        Ok(res.last_insert_rowid())
+    }
 }
 
 /// Upsert a task keyed on its stored UID (used by Google Tasks sync).
@@ -325,7 +382,7 @@ pub async fn list_tasks(
     ensure_default_list(&pool).await?;
 
     let mut sql = format!("SELECT {SELECT_COLS} FROM tasks");
-    let mut clauses: Vec<String> = Vec::new();
+    let mut clauses: Vec<String> = vec!["deleted = 0".to_string()];
     if let Some(list_id) = q.list {
         clauses.push(format!("list_id = {list_id}"));
     }
@@ -416,10 +473,7 @@ pub async fn delete_task(
     Path((account_id, task_id)): Path<(i64, i64)>,
 ) -> Result<Json<Value>, AppError> {
     let pool = db::get_user_db_pool(&state, account_id).await?;
-    sqlx::query("DELETE FROM tasks WHERE task_id = ?")
-        .bind(task_id)
-        .execute(&pool)
-        .await?;
+    crate::calendar_routes::soft_or_hard_delete(&pool, "tasks", "task_id", task_id).await?;
     Ok(Json(json!({ "status": "success" })))
 }
 
@@ -435,17 +489,21 @@ pub async fn clear_completed(
     Json(body): Json<ClearBody>,
 ) -> Result<Json<Value>, AppError> {
     let pool = db::get_user_db_pool(&state, account_id).await?;
-    let affected = if let Some(list_id) = body.list {
-        sqlx::query("DELETE FROM tasks WHERE completed = 1 AND list_id = ?")
-            .bind(list_id)
-            .execute(&pool)
-            .await?
-    } else {
-        sqlx::query("DELETE FROM tasks WHERE completed = 1")
-            .execute(&pool)
-            .await?
-    };
-    Ok(Json(json!({ "status": "success", "removed": affected.rows_affected() })))
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let list_filter = body.list.map(|id| format!(" AND list_id = {id}")).unwrap_or_default();
+    // Linked tasks are tombstoned (so the deletion syncs); local-only ones are dropped.
+    let soft = sqlx::query(&format!(
+        "UPDATE tasks SET deleted = 1, dirty = 1, local_updated_ms = ? WHERE completed = 1 AND deleted = 0 AND remote_id IS NOT NULL AND remote_id <> ''{list_filter}"
+    ))
+    .bind(now_ms)
+    .execute(&pool)
+    .await?;
+    let hard = sqlx::query(&format!(
+        "DELETE FROM tasks WHERE completed = 1 AND (remote_id IS NULL OR remote_id = ''){list_filter}"
+    ))
+    .execute(&pool)
+    .await?;
+    Ok(Json(json!({ "status": "success", "removed": soft.rows_affected() + hard.rows_affected() })))
 }
 
 // ─────────────────────────── List handlers ───────────────────────────
@@ -460,7 +518,7 @@ pub async fn get_lists(
     let rows = sqlx::query(
         r#"
         SELECT l.list_id, l.name, l.color, l.is_default,
-               (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.list_id AND t.completed = 0) AS cnt
+               (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.list_id AND t.completed = 0 AND t.deleted = 0) AS cnt
         FROM task_lists l
         ORDER BY l.is_default DESC, l.sort_order ASC, LOWER(l.name) ASC
         "#,
@@ -482,17 +540,17 @@ pub async fn get_lists(
     // Cross-cutting counters used by the sidebar's smart views.
     let now = chrono::Utc::now().timestamp_millis();
     let today_end = (now / DAY_MS) * DAY_MS + DAY_MS;
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE completed = 0")
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE completed = 0 AND deleted = 0")
         .fetch_one(&pool)
         .await
         .unwrap_or(0);
     let today: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE completed = 0 AND due_ms IS NOT NULL AND due_ms < ?")
+        sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE completed = 0 AND deleted = 0 AND due_ms IS NOT NULL AND due_ms < ?")
             .bind(today_end)
             .fetch_one(&pool)
             .await
             .unwrap_or(0);
-    let starred: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE completed = 0 AND starred = 1")
+    let starred: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE completed = 0 AND deleted = 0 AND starred = 1")
         .fetch_one(&pool)
         .await
         .unwrap_or(0);

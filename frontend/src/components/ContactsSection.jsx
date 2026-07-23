@@ -87,6 +87,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
   const [googleAvailable, setGoogleAvailable] = useState(false)
   const [syncingGoogle, setSyncingGoogle] = useState(false)
   const fileInputRef = useRef(null)
+  const syncBusy = useRef(false)
 
   const pushToast = useCallback((text, type = 'info') => {
     const id = `${Date.now()}-${Math.random()}`
@@ -253,18 +254,31 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
     }
   }, [accountId, pushToast])
 
-  const handleGoogleSync = useCallback(async () => {
+  const runSyncRef = useRef(async () => {})
+  runSyncRef.current = async ({ silent = false } = {}) => {
+    if (!googleAvailable || syncBusy.current) return
+    syncBusy.current = true
     setSyncingGoogle(true)
     try {
       const r = await googleSyncContacts(accountId)
       await refreshAll()
-      pushToast(t('Synced {{n}} contacts from Google', { n: r.contacts || 0 }))
+      if (!silent) pushToast(t('Synced with Google — {{in}} in, {{out}} out', { in: r.pulled || 0, out: r.pushed || 0 }))
     } catch (e) {
-      pushToast(e.message || 'Google sync failed', 'error')
+      if (!silent) pushToast(e.message || 'Google sync failed', 'error')
     } finally {
+      syncBusy.current = false
       setSyncingGoogle(false)
     }
-  }, [accountId, refreshAll, pushToast, t])
+  }
+  const handleGoogleSync = useCallback(() => runSyncRef.current({ silent: false }), [])
+
+  // Auto ("paso") sync: once when Google becomes available, then on an interval.
+  useEffect(() => {
+    if (!googleAvailable) return undefined
+    runSyncRef.current({ silent: true })
+    const id = setInterval(() => runSyncRef.current({ silent: true }), 60000)
+    return () => clearInterval(id)
+  }, [googleAvailable])
 
   const handleExportOne = useCallback(async (rec) => {
     try {
