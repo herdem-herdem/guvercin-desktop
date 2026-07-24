@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" viewBox="0 0 512 512">
+<style type="text/css">
+	.st0{fill:none;stroke:#000000;stroke-width:32;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10;}
+</style>
+<path class="st0" d="M304,50H128c-26.5,0-48,21.5-48,48v316c0,26.5,21.5,48,48,48h256c26.5,0,48-21.5,48-48V178L304,50z"/>
+<polyline points="304,50 304,178 432,178" class="st0"/>
+<line x1="160" y1="260" x2="352" y2="260" class="st0"/>
+<line x1="160" y1="340" x2="352" y2="340" class="st0"/>
+</svg>

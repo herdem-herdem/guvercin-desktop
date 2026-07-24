@@ -1201,23 +1201,23 @@ function EventDetail({ inst, locale, t, onClose, onEdit, onDelete, onEmail, onNe
         <div className="cal-detail-head" style={{ borderColor: inst.calendarColor }}>
           <span className="cal-detail-dot" style={{ background: inst.calendarColor }} />
           <h3>{card.title || t('(untitled event)')}</h3>
-          <button className="cal-detail-close" onClick={onClose} title={t('Close')}>✕</button>
+          <button className="cal-detail-close" onClick={onClose} title={t('Close')}><img src="/img/icons/close.svg" className="svg-icon-inline" /></button>
         </div>
         <div className="cal-detail-body">
-          <div className="cal-detail-row"><span className="cal-detail-ic">🕑</span><span>{dateText}{card.allDay ? ` · ${t('All day')}` : ''}</span></div>
-          {inst.isRecurring && <div className="cal-detail-row"><span className="cal-detail-ic">⟳</span><span>{t('Repeating event')}</span></div>}
-          {inst.calendarName && <div className="cal-detail-row"><span className="cal-detail-ic">🗂</span><span>{inst.calendarName}</span></div>}
-          {card.location && <div className="cal-detail-row"><span className="cal-detail-ic">📍</span><span>{card.location}</span></div>}
-          {card.description && <div className="cal-detail-row"><span className="cal-detail-ic">📝</span><span className="cal-detail-desc">{card.description}</span></div>}
+          <div className="cal-detail-row"><span className="cal-detail-ic"><img src="/img/icons/clock.svg" className="svg-icon-inline" /></span><span>{dateText}{card.allDay ? ` · ${t('All day')}` : ''}</span></div>
+          {inst.isRecurring && <div className="cal-detail-row"><span className="cal-detail-ic"><img src="/img/icons/reload.svg" className="svg-icon-inline" /></span><span>{t('Repeating event')}</span></div>}
+          {inst.calendarName && <div className="cal-detail-row"><span className="cal-detail-ic"><img src="/img/icons/folder.svg" className="svg-icon-inline" /></span><span>{inst.calendarName}</span></div>}
+          {card.location && <div className="cal-detail-row"><span className="cal-detail-ic"><img src="/img/icons/location.svg" className="svg-icon-inline" /></span><span>{card.location}</span></div>}
+          {card.description && <div className="cal-detail-row"><span className="cal-detail-ic"><img src="/img/icons/note.svg" className="svg-icon-inline" /></span><span className="cal-detail-desc">{card.description}</span></div>}
           {attendees.length > 0 && (
-            <div className="cal-detail-row"><span className="cal-detail-ic">👥</span>
+            <div className="cal-detail-row"><span className="cal-detail-ic"><img src="/img/icons/contacts.svg" className="svg-icon-inline" /></span>
               <span className="cal-detail-attendees">
                 {attendees.map((a, i) => <span key={i} className="cal-detail-att">{a.name || a.email}</span>)}
               </span>
             </div>
           )}
           {(card.reminders || []).length > 0 && (
-            <div className="cal-detail-row"><span className="cal-detail-ic">⏰</span>
+            <div className="cal-detail-row"><span className="cal-detail-ic"><img src="/img/icons/notification.svg" className="svg-icon-inline" /></span>
               <span>{card.reminders.map((m) => reminderLabel(m, t)).join(', ')}</span>
             </div>
           )}

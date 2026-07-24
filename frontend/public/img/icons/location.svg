@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" viewBox="0 0 512 512">
+<style type="text/css">
+	.st0{fill:none;stroke:#000000;stroke-width:32;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:10;}
+</style>
+<path class="st0" d="M416,212c0,132-160,252-160,252S96,344,96,212C96,124,167,53,256,53S416,124,416,212z"/>
+<circle class="st0" cx="256" cy="212" r="64"/>
+</svg>

@@ -738,22 +738,22 @@ function ToolbarSettings({
 
     const persistToolbarStyle = useCallback(async () => {
         const safeStyle = normalizeToolbarStyle(toolbarStyleDraft)
-        if (!accountId) {
-            localStorage.setItem('toolbar_style', safeStyle)
-            toolbarStyleBaselineRef.current = safeStyle
-            window.dispatchEvent(new Event('guvercin-toolbar-style-changed'))
-            return
-        }
-        setPersistError(null)
-        const res = await fetch(apiUrl(`/api/account/${accountId}/toolbar-style`), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ style: safeStyle }),
-        })
-        if (!res.ok) throw new Error('save_failed')
         localStorage.setItem('toolbar_style', safeStyle)
         toolbarStyleBaselineRef.current = safeStyle
         window.dispatchEvent(new Event('guvercin-toolbar-style-changed'))
+        setPersistError(null)
+
+        if (accountId) {
+            try {
+                await fetch(apiUrl(`/api/account/${accountId}/toolbar-style`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ style: safeStyle }),
+                })
+            } catch (err) {
+                console.warn('Backend toolbar-style save optional sync skipped:', err)
+            }
+        }
     }, [accountId, toolbarStyleBaselineRef, toolbarStyleDraft])
 
     const saveToolbarDraft = useCallback(async () => {
@@ -811,9 +811,9 @@ function ToolbarSettings({
                         />
                         <div className="sp-toolbar-style-card__label">{option.label}</div>
                         <div className="sp-toolbar-preview">
-                            <ToolbarPreviewButton styleValue={option.value} icon="✉" label="New" />
-                            <ToolbarPreviewButton styleValue={option.value} icon="🗂" label="Move" />
-                            <ToolbarPreviewButton styleValue={option.value} icon="🏷" label="Label" />
+                            <ToolbarPreviewButton styleValue={option.value} icon={<img src="/img/icons/mail.svg" className="svg-icon-inline" />} label="New" />
+                            <ToolbarPreviewButton styleValue={option.value} icon={<img src="/img/icons/move-to-folder.svg" className="svg-icon-inline" />} label="Move" />
+                            <ToolbarPreviewButton styleValue={option.value} icon={<img src="/img/icons/label.svg" className="svg-icon-inline" />} label="Label" />
                         </div>
                     </label>
                 ))}
@@ -888,15 +888,15 @@ function ThemeSettings({
         try {
             const result = await importThemeFromFile(file, { skipTempKeys: true })
             if (!result.ok) {
-                setImportThemeMessage({ type: 'error', text: '❌ Theme file is invalid.' })
+                setImportThemeMessage({ type: 'error', text: 'Theme file is invalid.' })
                 return
             }
             await refreshThemes()
             await applyPreview({ mode: 'manual', name: result.themeName })
-            setImportThemeMessage({ type: 'success', text: '✅ Theme imported — click Save to keep it.' })
+            setImportThemeMessage({ type: 'success', text: 'Theme imported — click Save to keep it.' })
         } catch (err) {
             console.error(err)
-            setImportThemeMessage({ type: 'error', text: '❌ Theme file is invalid.' })
+            setImportThemeMessage({ type: 'error', text: 'Theme file is invalid.' })
         } finally {
             setImportThemeBusy(false)
         }
@@ -1138,10 +1138,10 @@ function ServerSettings({ accountId, type, searchQuery = '' }) {
             })
             if (!res.ok) throw new Error('Save failed')
             baselineRef.current = { server: f.server, port: f.port, sslMode: f.sslMode }
-            setMessage({ type: 'success', text: '✅ Settings saved successfully.' })
+            setMessage({ type: 'success', text: 'Settings saved successfully.' })
             setForm((prev) => ({ ...prev, password: '' }))
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save settings.' })
+            setMessage({ type: 'error', text: 'Failed to save settings.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -1527,9 +1527,9 @@ function OfflineSettings({ accountId, searchQuery = '' }) {
                 policyValue,
                 cacheRawRfc822,
             })
-            setMessage({ type: 'success', text: '✅ Offline settings saved.' })
+            setMessage({ type: 'success', text: 'Offline settings saved.' })
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save offline settings.' })
+            setMessage({ type: 'error', text: 'Failed to save offline settings.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -2053,11 +2053,11 @@ function EncryptionSettings({ searchQuery = '' }) {
             setSaveMsg({
                 type: 'success',
                 text: enc
-                    ? '✅ Settings saved.'
-                    : '✅ Settings saved. Restart the app — data will be decrypted on next launch.',
+                    ? 'Settings saved.'
+                    : 'Settings saved. Restart the app — data will be decrypted on next launch.',
             })
         } catch {
-            setSaveMsg({ type: 'error', text: '❌ Failed to save settings.' })
+            setSaveMsg({ type: 'error', text: 'Failed to save settings.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -2101,7 +2101,7 @@ function EncryptionSettings({ searchQuery = '' }) {
             {/* Disable-encryption confirmation dialog */}
             {confirmDisable && (
                 <div className="sp-confirm-box sp-confirm-box--warn">
-                    <div className="sp-confirm-box__icon" aria-hidden="true">⚠️</div>
+                    <div className="sp-confirm-box__icon" aria-hidden="true"></div>
                     <div className="sp-confirm-box__body">
                         <p className="sp-confirm-box__title">Disable encryption?</p>
                         <p className="sp-confirm-box__desc">
@@ -2572,10 +2572,10 @@ function MailboxListCountDisplaySettings({ accountId, onRefreshAccount, searchQu
             })
             if (!resp.ok) throw new Error('Save failed')
             baselineModeRef.current = current
-            setMessage({ type: 'success', text: '✅ Sidebar counts preference saved.' })
+            setMessage({ type: 'success', text: 'Sidebar counts preference saved.' })
             if (onRefreshAccount) onRefreshAccount()
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -2703,10 +2703,10 @@ function MailboxOrderSettings({ accountId, onRefreshAccount, searchQuery = '' })
             })
             if (!resp.ok) throw new Error('Save failed')
             baselineMailboxJsonRef.current = JSON.stringify(order)
-            setMessage({ type: 'success', text: '✅ Mailbox order saved.' })
+            setMessage({ type: 'success', text: 'Mailbox order saved.' })
             if (onRefreshAccount) onRefreshAccount()
         } catch (err) {
-            setMessage({ type: 'error', text: `❌ Error: ${err.message}` })
+            setMessage({ type: 'error', text: `Error: ${err.message}` })
             throw err
         } finally {
             setSaving(false)
@@ -2821,10 +2821,10 @@ function LabelOrderSettings({ accountId, onRefreshAccount, searchQuery = '' }) {
             })
             if (!resp.ok) throw new Error('Save failed')
             baselineLabelsJsonRef.current = JSON.stringify(order)
-            setMessage({ type: 'success', text: '✅ Label order saved.' })
+            setMessage({ type: 'success', text: 'Label order saved.' })
             if (onRefreshAccount) onRefreshAccount()
         } catch (err) {
-            setMessage({ type: 'error', text: `❌ Error: ${err.message}` })
+            setMessage({ type: 'error', text: `Error: ${err.message}` })
             throw err
         } finally {
             setSaving(false)
@@ -2906,9 +2906,9 @@ function ComposeSettings({ accountId, searchQuery = '' }) {
             const saved = saveComposeSettings(accountId, settingsRef.current)
             baselineRef.current = saved
             setSettings(saved)
-            setMessage({ type: 'success', text: '✅ Compose preferences saved.' })
+            setMessage({ type: 'success', text: 'Compose preferences saved.' })
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -3093,9 +3093,9 @@ function NotificationSettings({ accountId, searchQuery = '' }) {
             const saved = saveNotificationSettings(accountId, settingsRef.current)
             baselineRef.current = saved
             setSettings(saved)
-            setMessage({ type: 'success', text: '✅ Notification preferences saved.' })
+            setMessage({ type: 'success', text: 'Notification preferences saved.' })
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -3264,7 +3264,7 @@ function GeneralBehaviorSettings({ searchQuery = '' }) {
         const success = await setLaunchAtLogin(enabled)
         if (!success) {
             setLaunchAtLogin(!enabled)
-            setMessage({ type: 'error', text: '❌ Could not change launch at login setting.' })
+            setMessage({ type: 'error', text: 'Could not change launch at login setting.' })
         }
     }
 
@@ -3275,9 +3275,9 @@ function GeneralBehaviorSettings({ searchQuery = '' }) {
             const saved = saveGeneralSettings(null, settingsRef.current)
             baselineRef.current = saved
             setSettings(saved)
-            setMessage({ type: 'success', text: '✅ General preferences saved.' })
+            setMessage({ type: 'success', text: 'General preferences saved.' })
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -3372,10 +3372,10 @@ function LanguageSettings({ searchQuery = '' }) {
             localStorage.setItem('temp_language', language)
             localStorage.setItem('language', language)
             baselineRef.current = language
-            setMessage({ type: 'success', text: '✅ Language preference saved. Reload to apply.' })
+            setMessage({ type: 'success', text: 'Language preference saved. Reload to apply.' })
             setTimeout(() => window.location.reload(), 2000)
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -3460,9 +3460,9 @@ function SyncSettings({ searchQuery = '' }) {
             const saved = saveGeneralSettings(null, settingsRef.current)
             baselineRef.current = saved
             setSettings(saved)
-            setMessage({ type: 'success', text: '✅ Sync preferences saved.' })
+            setMessage({ type: 'success', text: 'Sync preferences saved.' })
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -3709,9 +3709,9 @@ function RemoteImagesSettings({ accountId, searchQuery = '' }) {
             const saved = saveUIPreferences(accountId, settingsRef.current)
             baselineRef.current = saved
             setSettings(saved)
-            setMessage({ type: 'success', text: '✅ Remote image preferences saved.' })
+            setMessage({ type: 'success', text: 'Remote image preferences saved.' })
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -3800,9 +3800,9 @@ function ReadBehaviorSettings({ accountId, searchQuery = '' }) {
             const saved = saveUIPreferences(accountId, settingsRef.current)
             baselineRef.current = saved
             setSettings(saved)
-            setMessage({ type: 'success', text: '✅ Read behavior preferences saved.' })
+            setMessage({ type: 'success', text: 'Read behavior preferences saved.' })
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -3888,9 +3888,9 @@ function ListDisplaySettings({ accountId, searchQuery = '' }) {
             const saved = saveUIPreferences(accountId, settingsRef.current)
             baselineRef.current = saved
             setSettings(saved)
-            setMessage({ type: 'success', text: '✅ List display preferences saved.' })
+            setMessage({ type: 'success', text: 'List display preferences saved.' })
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)
@@ -3995,9 +3995,9 @@ function ThreadViewSettings({ accountId, searchQuery = '' }) {
             const saved = saveUIPreferences(accountId, settingsRef.current)
             baselineRef.current = saved
             setSettings(saved)
-            setMessage({ type: 'success', text: '✅ Conversation view preference saved.' })
+            setMessage({ type: 'success', text: 'Conversation view preference saved.' })
         } catch {
-            setMessage({ type: 'error', text: '❌ Failed to save.' })
+            setMessage({ type: 'error', text: 'Failed to save.' })
             throw new Error('save_failed')
         } finally {
             setSaving(false)

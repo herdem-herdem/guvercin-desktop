@@ -783,7 +783,7 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
             </div>
           ) : error ? (
             <div className="db-empty-state">
-              <div className="db-empty-icon">⚠️</div>
+              <div className="db-empty-icon"></div>
               <div className="db-empty-text">{error}</div>
             </div>
           ) : (

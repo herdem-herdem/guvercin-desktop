@@ -362,7 +362,7 @@ export default function MailWorkspace({ accountId, email }) {
           </div>
         ) : !selectedMail ? (
           <div className="db-empty-state">
-            <div className="db-empty-icon"><img src="/img/logo/guvercin-notext-nobackground.svg" alt="Guvercin" style={{width: '48px', height: '48px'}} /></div>
+            <div className="db-empty-icon"><img src="/img/logo/guvercin-notext-nobackground.svg" alt="Guvercin" style={{width: '72px', height: '72px'}} /></div>
             <div className="db-empty-text">Select an email</div>
           </div>
         ) : loadingContent ? (

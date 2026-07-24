@@ -406,7 +406,7 @@ function CollapsedTab({ label, title, onClick }) {
 const MAIL_FILTER_OPTIONS = [
     { key: 'all', label: 'All', icon: <img src="/img/icons/all-mails.svg" alt="All" className="svg-icon-inline" /> },
     { key: 'unread', label: 'Unread', icon: <img src="/img/icons/unreaed.svg" alt="Unread" className="svg-icon-inline" /> },
-    { key: 'toMe', label: 'To me', icon: '➤' },
+    { key: 'toMe', label: 'To me', icon: <img src="/img/icons/arrow-no-tail.svg" alt="To me" className="svg-icon-inline" /> },
 ]
 
 const MAIL_SORT_OPTIONS = [
@@ -3045,9 +3045,9 @@ const DashboardPage = () => {
                 <div className={`db-sidebar${appMenuVisible ? '' : ' db-sidebar--hidden'}`}>
                     {[
                         { key: 'mail', icon: <img src="/img/icons/mail.svg" alt="Mail" className="svg-icon-inline" />, label: t('Mail') },
-                        { key: 'calendar', icon: '📅', label: t('Calendar') },
-                        { key: 'contacts', icon: '👥', label: t('Contacts') },
-                        { key: 'todo', icon: '✅', label: t('Todo') }
+                        { key: 'calendar', icon: <img src="/img/icons/calendar.svg" alt="Calendar" className="svg-icon-inline" />, label: t('Calendar') },
+                        { key: 'contacts', icon: <img src="/img/icons/contacts.svg" alt="Contacts" className="svg-icon-inline" />, label: t('Contacts') },
+                        { key: 'todo', icon: <img src="/img/icons/todo.svg" alt="Todo" className="svg-icon-inline" />, label: t('Todo') }
                     ].map((item) => (
                         <button
                             key={item.key}
@@ -6615,7 +6615,7 @@ function MailSection({
                         {activeTabId ? (
                             activeComposeTab ? (
                                 <ul>
-                                    <li><button className="db-submenu-main-btn" disabled={!activeComposeTab} onClick={handleActiveComposeTabSend}>{toolbarMainButtonContent('📨', 'Send')}</button></li>
+                                    <li><button className="db-submenu-main-btn" disabled={!activeComposeTab} onClick={handleActiveComposeTabSend}>{toolbarMainButtonContent(<img src="/img/icons/sentbox.svg" className="svg-icon-inline" />, 'Send')}</button></li>
                                     <li><button className="db-submenu-main-btn" disabled={!activeComposeTab} onClick={handleActiveComposeTabDiscard}>{toolbarMainButtonContent(<img src="/img/icons/close.svg" className="svg-icon-inline" />, 'Discard')}</button></li>
                                     <li><button className="db-submenu-main-btn" disabled={!activeComposeTab} onClick={handleActiveComposeTabWindow}>{toolbarMainButtonContent(<img src="/img/icons/open-in-new-window.svg" className="svg-icon-inline" />, 'Open in Window')}</button></li>
                                 </ul>
@@ -6743,8 +6743,8 @@ function MailSection({
                                         {toolbarMainButtonContent(<img src="/img/icons/forward.svg" className="svg-icon-inline" />, 'Forward')}
                                     </button>
                                 </li>
-                                <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleMailToCalendar}>{toolbarMainButtonContent('📅', t('Add to Calendar'))}</button></li>
-                                <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleMailToTask}>{toolbarMainButtonContent('✅', t('New task'))}</button></li>
+                                <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleMailToCalendar}>{toolbarMainButtonContent(<img src="/img/icons/calendar.svg" className="svg-icon-inline" />, t('Add to Calendar'))}</button></li>
+                                <li><button className="db-submenu-main-btn" disabled={!hasAnyActionMail} onClick={handleMailToTask}>{toolbarMainButtonContent(<img src="/img/icons/todo.svg" className="svg-icon-inline" />, t('New task'))}</button></li>
                                 <li>
                                     <button
                                         className="db-submenu-main-btn"
@@ -7153,7 +7153,7 @@ function MailSection({
                                                 <li className="db-folder-item selected">
                                                     <div className="db-folder-item-content">
                                                         <span className="db-folder-chevron-placeholder" />
-                                                        <span className="db-folder-icon">🔎</span>
+                                                        <span className="db-folder-icon"><img src="/img/icons/search.svg" className="svg-icon-inline" /></span>
                                                         <span className="db-folder-text">{t('Search results')}</span>
                                                     </div>
                                                 </li>
@@ -7203,7 +7203,7 @@ function MailSection({
                                             <li className="db-folder-item selected">
                                                 <div className="db-folder-item-content">
                                                     <span className="db-folder-chevron-placeholder" />
-                                                    <span className="db-folder-icon">🔎</span>
+                                                    <span className="db-folder-icon"><img src="/img/icons/search.svg" className="svg-icon-inline" /></span>
                                                     <span className="db-folder-text">{t('Search results')}</span>
                                                 </div>
                                             </li>
