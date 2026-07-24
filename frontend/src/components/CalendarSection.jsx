@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestNewCompose } from '../utils/mailtoInbox.js'
 import { requestNewTask, subscribeNewEvent } from '../utils/crossLinks.js'
+import { useOfflineSync } from '../context/OfflineSyncContext.jsx'
+import { notifyReminder } from '../utils/notifications.js'
+import { getNotificationSettings, isWithinQuietHours } from '../utils/notificationSettings.js'
 import {
   caldavGetConfig, caldavSetConfig, caldavStatus, caldavSyncCalendar,
   createCalendar, createEvent, deleteCalendar, deleteEvent, emptyEvent, exportIcs,
@@ -50,6 +53,7 @@ function downloadText(filename, text, mime = 'text/calendar;charset=utf-8') {
 export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_small', searchQuery }) {
   const { t, i18n } = useTranslation()
   const locale = i18n.language || 'en'
+  const { networkOnline } = useOfflineSync()
 
   const [calendars, setCalendars] = useState([])
   const [events, setEvents] = useState([])
@@ -224,27 +228,27 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
           firedReminders.current.add(key)
           const when = startDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
           const label = ev.card.title || t('(untitled event)')
+          // In-app toast always shows (mirrors mail: the in-app surface updates
+          // even during Do-Not-Disturb).
           pushToast(`⏰ ${label} — ${when}`, 'info')
-          try {
-            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-              const n = new Notification(label, { body: t('Starts at {{time}}', { time: when }) })
-              void n
-            }
-          } catch { /* ignore */ }
+          // OS notification respects the shared notification settings (master
+          // switch, quiet hours, sound). Clicking it opens the Calendar.
+          const prefs = getNotificationSettings(accountId)
+          if (prefs.enabled && !isWithinQuietHours(prefs)) {
+            notifyReminder({
+              kind: 'calendar',
+              id: ev.instanceKey,
+              title: label,
+              body: t('Starts at {{time}}', { time: when }),
+              sound: prefs.soundMode === 'default',
+            })
+          }
         }, fireAt - now)
         reminderTimers.current.push(tm)
       }
     }
     return () => { reminderTimers.current.forEach((tm) => clearTimeout(tm)) }
-  }, [events, locale, t, pushToast])
-
-  useEffect(() => {
-    try {
-      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {})
-      }
-    } catch { /* ignore */ }
-  }, [])
+  }, [events, locale, t, pushToast, accountId])
 
   // ── Navigation ──
   const goToday = () => setCursor(startOfDay(new Date()))
@@ -429,7 +433,10 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   const syncEnabled = (backend === 'google' && googleGranted) || (backend === 'caldav' && caldavAvailable)
   const runSyncRef = useRef(async () => {})
   runSyncRef.current = async () => {
-    if (!syncEnabled || syncBusy.current) return
+    // Cloud sync only runs while online — no point hammering Google/CalDAV with
+    // failing requests offline. The local view keeps refreshing regardless (the
+    // backend is a local process). Reconnecting triggers an immediate sync below.
+    if (!syncEnabled || !networkOnline || syncBusy.current) return
     syncBusy.current = true
     try {
       if (backend === 'google' && googleGranted) await googleSyncCalendar(accountId)
@@ -476,13 +483,14 @@ export default function CalendarSection({ accountId, toolbarStyle = 'icon_text_s
   }
   useEffect(() => () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }, [])
 
-  // Auto ("paso") sync: once a backend becomes available, then periodically.
+  // Auto ("paso") sync: sync once a backend is available AND we're online (so
+  // regaining connectivity kicks an immediate catch-up sync), then periodically.
   useEffect(() => {
-    if (!syncEnabled) return undefined
+    if (!syncEnabled || !networkOnline) return undefined
     runSyncRef.current()
     const id = setInterval(() => runSyncRef.current(), 30000)
     return () => clearInterval(id)
-  }, [syncEnabled])
+  }, [syncEnabled, networkOnline])
 
   // ── Calendar management ──
   const submitCreateCal = useCallback(async (name) => {

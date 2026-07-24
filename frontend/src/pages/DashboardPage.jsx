@@ -2089,7 +2089,13 @@ const DashboardPage = () => {
             }
         })()
 
-        const unsubscribeOpen = subscribeNotificationOpen((mail) => {
+        const unsubscribeOpen = subscribeNotificationOpen((event) => {
+            if (!event) return
+            // Back-compat: a bare mail object (no `kind`) is treated as mail.
+            const kind = event.kind || 'mail'
+            if (kind === 'calendar') { setActiveSection('calendar'); return }
+            if (kind === 'todo') { setActiveSection('todo'); return }
+            const mail = event.kind ? event.payload : event
             if (!mail) return
             setActiveSection('mail')
             setSelectedFolder('INBOX')

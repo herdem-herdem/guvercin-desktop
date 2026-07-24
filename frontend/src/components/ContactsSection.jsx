@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestNewCompose } from '../utils/mailtoInbox.js'
 import { requestNewEvent, requestNewTask } from '../utils/crossLinks.js'
+import { useOfflineSync } from '../context/OfflineSyncContext.jsx'
 import {
   createContact, createList, deleteContact, deleteList, displayNameOf, emptyCard,
   exportVcf, fetchContacts, fetchLists, fetchSuggestions, googleStatus, googleSyncContacts,
@@ -70,6 +71,7 @@ const icon = (name) => <img src={`/img/icons/${name}.svg`} className="svg-icon-i
 
 export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_small', searchQuery }) {
   const { t } = useTranslation()
+  const { networkOnline } = useOfflineSync()
   const [contacts, setContacts] = useState([])
   const [lists, setLists] = useState([])
   const [counts, setCounts] = useState({ total: 0, favorites: 0 })
@@ -273,7 +275,7 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
   // Google sync always runs quietly in the background — no button, no toast.
   const runSyncRef = useRef(async () => {})
   runSyncRef.current = async () => {
-    if (!googleAvailable || syncBusy.current) return
+    if (!googleAvailable || !networkOnline || syncBusy.current) return
     syncBusy.current = true
     try {
       await googleSyncContacts(accountId)
@@ -291,13 +293,13 @@ export default function ContactsSection({ accountId, toolbarStyle = 'icon_text_s
   }
   useEffect(() => () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }, [])
 
-  // Auto ("paso") sync: once when Google becomes available, then periodically.
+  // Auto ("paso") sync: once Google is available AND online, then periodically.
   useEffect(() => {
-    if (!googleAvailable) return undefined
+    if (!googleAvailable || !networkOnline) return undefined
     runSyncRef.current()
     const id = setInterval(() => runSyncRef.current(), 30000)
     return () => clearInterval(id)
-  }, [googleAvailable])
+  }, [googleAvailable, networkOnline])
 
   const handleExportOne = useCallback(async (rec) => {
     try {

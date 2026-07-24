@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatIsoLocalDate, formatIsoLocalDateTime, parseIsoLocal } from '../utils/calendarApi.js'
 import { requestNewEvent, subscribeNewTask } from '../utils/crossLinks.js'
+import { useOfflineSync } from '../context/OfflineSyncContext.jsx'
+import { notifyReminder } from '../utils/notifications.js'
+import { getNotificationSettings, isWithinQuietHours } from '../utils/notificationSettings.js'
 import {
   clearCompleted, createTask, createTaskList, deleteTask, deleteTaskList, emptyTask,
   fetchTaskLists, fetchTasks, googleStatus, googleSyncTasks, normalizeTask, updateTask,
@@ -49,6 +52,7 @@ function dueLabel(task, locale, t) {
 export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small', searchQuery }) {
   const { t, i18n } = useTranslation()
   const locale = i18n.language || 'en'
+  const { networkOnline } = useOfflineSync()
 
   const [lists, setLists] = useState([])
   const [counts, setCounts] = useState({ total: 0, today: 0, starred: 0 })
@@ -66,6 +70,8 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
   const [googleAvailable, setGoogleAvailable] = useState(false)
   const [toasts, setToasts] = useState([])
   const syncBusy = useRef(false)
+  const firedReminders = useRef(new Set())
+  const reminderTimers = useRef([])
 
   const pushToast = useCallback((text, type = 'info') => {
     const id = `${Date.now()}-${Math.random()}`
@@ -128,7 +134,7 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
   // and once Google becomes available.
   const runSyncRef = useRef(async () => {})
   runSyncRef.current = async () => {
-    if (!googleAvailable || syncBusy.current) return
+    if (!googleAvailable || !networkOnline || syncBusy.current) return
     syncBusy.current = true
     try {
       await googleSyncTasks(accountId)
@@ -147,11 +153,52 @@ export default function TodoSection({ accountId, toolbarStyle = 'icon_text_small
   useEffect(() => () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }, [])
 
   useEffect(() => {
-    if (!googleAvailable) return undefined
+    if (!googleAvailable || !networkOnline) return undefined
     runSyncRef.current()
     const id = setInterval(() => runSyncRef.current(), 30000)
     return () => clearInterval(id)
-  }, [googleAvailable])
+  }, [googleAvailable, networkOnline])
+
+  // ── Due-date reminders: fire an in-app toast + OS notification as tasks come
+  // due (mirrors the calendar). Timed tasks fire at their due time; date-only
+  // tasks fire at 09:00 that day. Only upcoming, not-yet-fired, non-completed
+  // tasks within a 12h horizon are scheduled. ──
+  useEffect(() => {
+    reminderTimers.current.forEach((tm) => clearTimeout(tm))
+    reminderTimers.current = []
+    const now = Date.now()
+    const HORIZON = 12 * 60 * 60 * 1000
+    for (const task of tasks) {
+      if (task.card.completed) continue
+      const due = parseIsoLocal(task.card.due)
+      if (!due) continue
+      let fireAt
+      if (task.card.hasDueTime) {
+        fireAt = due.getTime()
+      } else {
+        const d = startOfDay(due); d.setHours(9, 0, 0, 0); fireAt = d.getTime()
+      }
+      const key = `${task.id}:${fireAt}`
+      if (fireAt <= now || fireAt - now > HORIZON || firedReminders.current.has(key)) continue
+      const tm = setTimeout(() => {
+        firedReminders.current.add(key)
+        const label = task.card.title || t('(untitled task)')
+        pushToast(`⏰ ${label}`, 'info')
+        const prefs = getNotificationSettings(accountId)
+        if (prefs.enabled && !isWithinQuietHours(prefs)) {
+          notifyReminder({
+            kind: 'todo',
+            id: task.id,
+            title: t('Task due'),
+            body: label,
+            sound: prefs.soundMode === 'default',
+          })
+        }
+      }, fireAt - now)
+      reminderTimers.current.push(tm)
+    }
+    return () => { reminderTimers.current.forEach((tm) => clearTimeout(tm)) }
+  }, [tasks, t, accountId, pushToast])
 
   const defaultListId = useMemo(() => {
     const def = lists.find((l) => l.isDefault) || lists[0]
