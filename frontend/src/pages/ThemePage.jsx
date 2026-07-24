@@ -7,8 +7,8 @@ import LanguageSelector from '../components/LanguageSelector.jsx'
 import './ThemePage.css'
 
 const BUILTIN = [
-  { name: 'light', labelKey: 'Light', swatches: ['#FFF5CA', '#FFCB08', '#343a40'] },
-  { name: 'dark', labelKey: 'Dark', swatches: ['#0f1115', '#3b3f46', '#e9eaec'] },
+  { name: 'light', labelKey: 'Light', swatches: ['#fef5c8', '#fecd01', '#2596be'] },
+  { name: 'dark', labelKey: 'Dark', swatches: ['#14181d', '#d6b14a', '#2f88a6'] },
 ]
 
 function ThemePage() {

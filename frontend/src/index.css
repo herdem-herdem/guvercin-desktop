@@ -80,8 +80,8 @@ body {
   pointer-events: none;
   z-index: -1;
   background:
-    radial-gradient(circle at 12% 18%, var(--shell-glow-1, rgba(255, 203, 8, 0.24)) 0, transparent 24%),
-    radial-gradient(circle at 85% 12%, var(--shell-glow-2, rgba(74, 163, 255, 0.16)) 0, transparent 20%);
+    radial-gradient(circle at 12% 18%, var(--shell-glow-1, rgba(255, 203, 8, 0.24)) 0, transparent 26%),
+    radial-gradient(circle at 85% 12%, var(--shell-glow-2, rgba(74, 163, 255, 0.16)) 0, transparent 22%);
   opacity: 0.95;
 }
 
@@ -93,10 +93,12 @@ body {
 .offline-setup-page .offline-setup-card,
 .theme-page .theme-container,
 .account-settings-page .asp-container {
-  background: color-mix(in srgb, var(--c-surface-1) 94%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--c-surface-1) 88%, transparent), color-mix(in srgb, var(--c-surface-2) 92%, transparent)),
+    var(--c-surface-1);
   border: 1px solid var(--shell-panel-border, var(--c-border-1));
   border-radius: 24px;
-  box-shadow: var(--shell-panel-shadow, var(--shadow-2));
+  box-shadow: var(--shell-panel-shadow, var(--shadow-2)), inset 0 1px 0 var(--overlay-inverse-1);
   backdrop-filter: blur(20px) saturate(145%);
 }
 
