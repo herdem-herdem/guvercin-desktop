@@ -8162,6 +8162,17 @@ function MailSection({
                                                     >
                                                         <img src="/img/icons/open-in-new-window.svg" className="svg-icon-inline" />
                                                     </button>
+                                                    <button
+                                                        className="db-mail-action-btn"
+                                                        onClick={() => {
+                                                            setSelectedMail(null)
+                                                            setSelectedThread(null)
+                                                            setMailContent(null)
+                                                        }}
+                                                        title={t('Close')}
+                                                    >
+                                                        <img src="/img/icons/close.svg" className="svg-icon-inline" />
+                                                    </button>
                                                 </div>
 	                                        </div>
                                             {renderHeadersPanelFor(selectedMail, mailContent, selectedMail?.mailbox || selectedFolder || 'INBOX')}

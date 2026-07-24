@@ -44,7 +44,7 @@ export default function ComposeMailContent({
                             onClick={onDiscard}
                             title="Close"
                         >
-                            <img src="/img/icons/three-point.svg" className="svg-icon-inline" />
+                            <img src="/img/icons/close.svg" className="svg-icon-inline" />
                         </button>
                     )}
                 </div>
