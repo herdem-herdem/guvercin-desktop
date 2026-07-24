@@ -681,7 +681,7 @@ export default function DetachedMailWindow({ initialLabel = '' } = {}) {
       />
       <div className="db-navbar">
         <button className="db-logo-btn" style={{ padding: 0, height: '40px', background: 'transparent', minWidth: '140px', border: 'none' }}>
-          <img src="/img/logo/guvercin-righttext-nobackground.svg" alt="Guvercin" style={{ height: '100%', width: 'auto', display: 'block' }} />
+          <img src="/img/logo/guvercin-righttext-background.svg" alt="Guvercin" style={{ height: '100%', width: 'auto', display: 'block' }} />
         </button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <button className="db-icon-btn" title="Close" onClick={closeWindow}><img src="/img/icons/close.svg" className="svg-icon-inline" alt="close"/></button>

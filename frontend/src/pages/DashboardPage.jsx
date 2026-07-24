@@ -2732,7 +2732,7 @@ const DashboardPage = () => {
                         border: 'none'
                     }}
                 >
-                    <img src="/img/logo/guvercin-righttext-nobackground.svg" alt="Guvercin" style={{ height: '100%', width: 'auto', display: 'block' }} />
+                    <img src="/img/logo/guvercin-righttext-background.svg" alt="Guvercin" style={{ height: '100%', width: 'auto', display: 'block' }} />
                 </button>
                 {!isMailSection ? (
                     // Non-mail workspaces: a live filter over the current page's content.
@@ -8025,7 +8025,7 @@ function MailSection({
                             <div className="db-right-panel">
                                 {!hasMailSource ? (
                                     <div className="db-empty-state" style={{ paddingTop: 100 }}>
-                                        <div className="db-empty-icon"><img src="/img/logo/guvercin-notext-nobackground.svg" alt="Guvercin" style={{ width: '1024px', height: 'auto' }} /></div>
+                                        <div className="db-empty-icon"><img src="/img/logo/guvercin-notext-nobackground.svg" alt="Guvercin" className="db-empty-logo-img" /></div>
                                         <div className="db-empty-text">
                                             {connecting
                                                 ? 'Connecting...'
@@ -8134,7 +8134,7 @@ function MailSection({
                                     </div>
                                 ) : !selectedMail ? (
                                     <div className="db-empty-state">
-                                        <div className="db-empty-icon"><img src="/img/logo/guvercin-notext-nobackground.svg" alt="Guvercin" style={{ width: '600px', height: 'auto' }} /></div>
+                                        <div className="db-empty-icon"><img src="/img/logo/guvercin-notext-nobackground.svg" alt="Guvercin" className="db-empty-logo-img" /></div>
                                         <div className="db-empty-text">Select an email</div>
                                     </div>
                                 ) : loadingContent ? (

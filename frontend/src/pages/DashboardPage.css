@@ -2942,6 +2942,20 @@ body.resizing * {
 
 .db-empty-icon {
   font-size: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.db-empty-logo-img {
+  width: clamp(60px, 15vw, 180px);
+  height: auto;
+  max-height: 25vh;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+  transition: width 0.15s ease, height 0.15s ease;
 }
 
 .db-empty-text {
